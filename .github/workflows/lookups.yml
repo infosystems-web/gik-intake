@@ -1,0 +1,30 @@
+# Fills in name, price and proof links for every scanned barcode in the Supabase gik schema.
+# Runs every 3 hours and on demand (Actions tab > GIK lookups > Run workflow). Free for public repos.
+name: GIK lookups
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+concurrency: gik-lookups
+jobs:
+  lookups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install psycopg2-binary
+      - name: Look up names, prices and links, then sync to Supabase
+        working-directory: lookup
+        env:
+          GIK_DB: ${{ runner.temp }}/gik.db
+          GIK_DB_PASSWORD: ${{ secrets.GIK_DB_PASSWORD }}
+          GOOGLE_BOOKS_KEY: ${{ secrets.GOOGLE_BOOKS_KEY }}
+          UPCDATABASE_KEY: ${{ secrets.UPCDATABASE_KEY }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+        run: |
+          python gik.py init
+          python gik.py cloud sync --max 250

@@ -59,7 +59,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <section id="v-scan" class="hidden">
   <div class="card">
     <div class="row">
-      <div><label>Donation</label><select id="donation"></select></div>
+      <div><label>Donation (optional — leave on General intake)</label><select id="donation"></select></div>
       <div><label>Rack / bin (location)</label><select id="location"></select></div>
       <div style="flex:0 0 120px"><label>Qty per scan</label><input id="qty" type="number" min="1" value="1"></div>
     </div>
@@ -196,7 +196,7 @@ async function loadRefs() {
   for (const r of [d, dn, loc, gen, gl]) if (r.error) return fail(r.error);
   state.donations = d.data; state.donors = dn.data; state.locations = loc.data; state.generics = gen.data; state.glmap = gl.data;
   $("#donation").innerHTML = state.donations.map((x) => `<option value="${esc(x.donation_id)}">${esc(x.donation_id)} — ${esc(x.donors?.name)} (${x.received_date})</option>`).join("") || `<option value="">— create a donation first —</option>`;
-  const saved = localStorage.getItem("gik.donation"); if (saved && state.donations.some((x) => x.donation_id === saved)) $("#donation").value = saved;
+  const saved = localStorage.getItem("gik.donation"); $("#donation").value = saved && state.donations.some((x) => x.donation_id === saved) ? saved : "GENERAL";
   $("#location").innerHTML = `<option value="">(not put away yet)</option>` + state.locations.map((x) => `<option value="${esc(x.code)}">${esc(x.code)} — ${esc(x.description || x.rack)}</option>`).join("");
   const savedLoc = localStorage.getItem("gik.location"); if (savedLoc) $("#location").value = savedLoc;
   $("#donorSel").innerHTML = `<option value="">— pick —</option>` + state.donors.map((x) => `<option value="${x.donor_id}">${esc(x.name)}</option>`).join("");
@@ -255,7 +255,7 @@ function showHits(text) {
 }
 
 async function recordScan(code) {
-  const donation = $("#donation").value; if (!donation) return toast("Pick or create a donation first", "bad");
+  const donation = $("#donation").value || "GENERAL";
   const qty = pendingQty || Math.max(1, +$("#qty").value || 1); pendingQty = null;
   toast(`Saving ${code}…`);
   let { data: item, error: itemErr } = await sb.from("item_master").select("gtin, name, brand, fmv_unit, fmv_status, category").eq("gtin", code).maybeSingle();

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GIK Intake</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231b2a52'/><rect x='6' y='8' width='2' height='16' fill='%23f6a21e'/><rect x='10' y='8' width='3' height='16' fill='%23f6a21e'/><rect x='15' y='8' width='2' height='16' fill='%23f6a21e'/><rect x='19' y='8' width='4' height='16' fill='%23f6a21e'/><rect x='25' y='8' width='2' height='16' fill='%23f6a21e'/></svg>">
+<style>
+:root{--navy:#1b2a52;--orange:#f06a1f;--yellow:#f6c21e;--bg:#f4f5f8;--card:#fff;--ink:#1d2433;--muted:#64708a;--line:#dde2ec;--ok:#1d8a4b;--warn:#b7791f;--bad:#c0392b}
+*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;letter-spacing:.3px}header h1 span{color:var(--yellow)}
+header .who{margin-left:auto;font-size:14px;opacity:.9;display:flex;gap:10px;align-items:center}
+nav{display:flex;gap:4px;padding:8px 16px 0;background:var(--navy)}
+nav button{background:transparent;border:0;color:#cfd6e6;padding:8px 14px;border-radius:8px 8px 0 0;font-size:15px;cursor:pointer}
+nav button.on{background:var(--bg);color:var(--navy);font-weight:600}
+main{max-width:1000px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:17px;color:var(--navy)}
+label{display:block;font-size:13px;color:var(--muted);margin:8px 0 3px}
+input,select,textarea{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+input:focus,select:focus{outline:2px solid var(--orange);border-color:var(--orange)}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+button.btn{font:inherit;padding:9px 14px;border-radius:8px;border:1px solid var(--navy);background:var(--navy);color:#fff;cursor:pointer}
+button.btn.sec{background:#fff;color:var(--navy)}button.btn.warn{background:var(--orange);border-color:var(--orange)}
+button.btn:disabled{opacity:.5;cursor:default}
+.scanbox{font-size:26px;padding:14px;border:2px solid var(--navy);letter-spacing:1px}
+.big{font-size:40px;font-weight:700;color:var(--navy);line-height:1}
+.muted{color:var(--muted);font-size:14px}.small{font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;background:#eef1f7;color:var(--navy)}
+.pill.ok{background:#e3f5ea;color:var(--ok)}.pill.warn{background:#fdf1dc;color:var(--warn)}.pill.bad{background:#fbe5e2;color:var(--bad)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:12px 18px;border-radius:10px;opacity:0;transition:.2s;pointer-events:none;max-width:90vw}
+#toast.show{opacity:1}#toast.bad{background:var(--bad)}#toast.ok{background:var(--ok)}
+.hit{padding:10px;border:1px solid var(--line);border-radius:8px;margin-top:6px;cursor:pointer;display:flex;justify-content:space-between;gap:10px}
+.hit:hover{border-color:var(--orange);background:#fff8f3}
+.hidden{display:none !important}
+.login{max-width:420px;margin:60px auto;text-align:center}
+.kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#eef1f7;padding:1px 6px;border-radius:4px}
+.lastscan{display:flex;gap:14px;align-items:center;padding:12px;border-radius:10px;background:#fff8e6;border:1px solid #f3dd9a;margin-top:10px}
+@media (max-width:600px){.big{font-size:30px}header .who{font-size:12px}}
+</style>
+</head>
+<body>
+<header><h1>TEP <span>GIK Intake</span></h1><div class="who" id="who"></div></header>
+<nav id="nav" class="hidden">
+  <button data-v="scan" class="on">Scan</button><button data-v="donations">Donations</button>
+  <button data-v="review">Review</button><button data-v="values">Values &amp; export</button>
+</nav>
+<main>
+
+<section id="v-login" class="login card">
+  <h2>Sign in to start scanning</h2>
+  <p class="muted">Use your @theeducationpartnership.org Google account.</p>
+  <button class="btn" id="btnLogin">Sign in with Google</button>
+  <p class="small muted" id="loginMsg"></p>
+</section>
+
+<section id="v-scan" class="hidden">
+  <div class="card">
+    <div class="row">
+      <div><label>Donation</label><select id="donation"></select></div>
+      <div><label>Rack / bin (location)</label><select id="location"></select></div>
+      <div style="flex:0 0 120px"><label>Qty per scan</label><input id="qty" type="number" min="1" value="1"></div>
+    </div>
+    <label>Scan a barcode, or type what the item is (no barcode)</label>
+    <input id="scan" class="scanbox" autocomplete="off" placeholder="scan here…" inputmode="text">
+    <p class="small muted">Scanner guns type the number and press Enter. Commands: <span class="kbd">q24</span> = next scan counts as a case of 24 ·
+      <span class="kbd">@C03Z</span> = change location · <span class="kbd">-</span> = undo last · or type words like <span class="kbd">table lamp</span> and pick from the list.
+      <button class="btn sec small" id="btnCamera" style="padding:3px 8px">Use phone camera</button></p>
+    <div id="camwrap" class="hidden"><video id="cam" style="width:100%;max-height:260px;border-radius:8px;background:#000" playsinline muted></video></div>
+    <div id="hits"></div>
+    <div id="last" class="lastscan hidden"></div>
+  </div>
+  <div class="card">
+    <div class="row" style="align-items:center"><h2 style="flex:1">This donation so far</h2><div class="big" id="unitCount">0</div><div class="muted small" style="flex:0">units</div></div>
+    <div style="overflow:auto"><table id="recent"><thead><tr><th>Time</th><th>Item</th><th>Code</th><th>Qty</th><th>Loc</th><th>By</th><th></th></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<section id="v-donations" class="hidden">
+  <div class="card"><h2>New donation</h2>
+    <div class="row">
+      <div><label>Donor</label><select id="donorSel"></select></div>
+      <div><label>…or new donor name</label><input id="donorNew" placeholder="Acme Office Supply"></div>
+      <div style="flex:0 0 160px"><label>Donor type</label><select id="donorType"><option>corporate</option><option>freight-in-kind</option><option>individual</option><option>nerc-partner</option><option>other</option></select></div>
+    </div>
+    <div class="row">
+      <div><label>Received date</label><input id="dDate" type="date"></div>
+      <div><label>BOL / reference #</label><input id="dBol"></div>
+      <div style="flex:0 0 120px"><label>Pallets</label><input id="dPallets" type="number" min="0"></div>
+    </div>
+    <label>Notes</label><input id="dNotes">
+    <p><button class="btn" id="btnDonation">Create donation</button></p>
+  </div>
+  <div class="card"><h2>Donations</h2><div style="overflow:auto"><table id="donTable"><thead><tr><th>ID</th><th>Donor</th><th>Date</th><th>Pallets</th><th>Units</th><th>Verified value</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<section id="v-review" class="hidden">
+  <div class="card"><h2>Needs a human <span class="muted small" id="reviewCount"></span></h2>
+    <p class="small muted">Barcodes with no verified price or no category. Nightly lookups fill in what they can; a reviewer confirms a store price and URL. Staff only can save.</p>
+    <div style="overflow:auto"><table id="reviewTable"><thead><tr><th>Code</th><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Waiting</th><th>Links</th><th></th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card hidden" id="verifyCard"><h2>Verify <span id="vGtin"></span></h2>
+    <div class="row"><div><label>Item name</label><input id="vName"></div><div><label>Brand</label><input id="vBrand"></div></div>
+    <div class="row"><div><label>Category</label><select id="vCat"></select></div><div style="flex:0 0 140px"><label>Unit value ($)</label><input id="vFmv" type="number" step="0.01"></div><div style="flex:0 0 140px"><label>Basis</label><select id="vBasis"><option>retail</option><option>wholesale</option><option>appraised</option></select></div></div>
+    <label>Store page URL that shows this price</label><input id="vUrl" placeholder="https://www.walmart.com/ip/…">
+    <div class="row"><div><label>Merchant</label><input id="vMerchant" placeholder="Walmart"></div><div><label>Notes</label><input id="vNotes"></div></div>
+    <p><button class="btn" id="btnVerify">Mark verified</button> <button class="btn sec" id="btnVerifyCancel">Cancel</button></p>
+  </div>
+</section>
+
+<section id="v-values" class="hidden">
+  <div class="card"><h2>Item values</h2>
+    <p class="small muted">One row per barcode or generic item with units received, the value used and up to three merchant prices with links. <button class="btn" id="btnCsv">Download CSV</button> <button class="btn sec" id="btnReceiptsCsv">Download all scans CSV</button></p>
+    <input id="valFilter" placeholder="filter by name, brand or code">
+    <div style="overflow:auto"><table id="valTable"><thead><tr><th>Code</th><th>Item</th><th>Category</th><th>Units</th><th>Value</th><th>Status</th><th>Offers</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+</main>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL = "https://zwqlbnnvbcvktfcqwwvb.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Bv9McweZbDTH9KBZTWpBtA_I1iCOTjw";
+const DOMAIN = "theeducationpartnership.org";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: "gik" } });
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let user = null, isStaff = false, pendingQty = null, state = { donations: [], donors: [], locations: [], generics: [], glmap: [], lastReceipt: null };
+
+function toast(msg, kind = "") { const t = $("#toast"); t.textContent = msg; t.className = "show " + kind; clearTimeout(t._h); t._h = setTimeout(() => (t.className = ""), 3500); }
+function fail(e) { console.error(e); toast((e && (e.message || e.error_description)) || String(e), "bad"); }
+
+// ---------- GTIN ----------
+function normalizeGtin(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (![8, 12, 13, 14].includes(d.length)) return null;
+  const g = d.padStart(14, "0"), body = g.slice(0, 13), check = +g[13];
+  let total = 0; for (let i = 0; i < 13; i++) total += (+body[i]) * (i % 2 === 0 ? 3 : 1);
+  return (10 - (total % 10)) % 10 === check ? g : null;
+}
+const upcForm = (g14) => { const s = g14.replace(/^0+/, ""); return s.length <= 12 ? s.padStart(12, "0") : s; };
+const links = (g14) => { const u = upcForm(g14); return { walmart: `https://www.walmart.com/search?q=${u}`, target: `https://www.target.com/s?searchTerm=${u}`, amazon: `https://www.amazon.com/s?k=${u}` }; };
+
+// ---------- auth ----------
+$("#btnLogin").onclick = async () => {
+  const { error } = await sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname, queryParams: { hd: DOMAIN, prompt: "select_account" } } });
+  if (error) fail(error);
+};
+async function onSession(session) {
+  user = session?.user || null;
+  if (!user) { show("login"); $("#nav").classList.add("hidden"); $("#who").innerHTML = ""; return; }
+  const email = (user.email || "").toLowerCase();
+  if (!email.endsWith("@" + DOMAIN)) { await sb.auth.signOut(); $("#loginMsg").textContent = `${email} is not a TEP account. Please sign in with your @${DOMAIN} Google account.`; return; }
+  const { data: st } = await sb.from("staff").select("role").eq("email", email).maybeSingle();
+  isStaff = !!st;
+  $("#who").innerHTML = `${esc(email)} ${isStaff ? '<span class="pill ok">staff</span>' : '<span class="pill">volunteer</span>'} <button class="btn sec" style="padding:4px 10px" id="btnOut">Sign out</button>`;
+  $("#btnOut").onclick = () => sb.auth.signOut();
+  $("#nav").classList.remove("hidden");
+  await loadRefs(); show("scan");
+}
+sb.auth.onAuthStateChange((_e, session) => onSession(session));
+
+// ---------- navigation ----------
+function show(v) {
+  document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "v-" + v));
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  if (v === "scan") setTimeout(() => $("#scan").focus(), 50);
+  if (v === "donations") loadDonationsTable();
+  if (v === "review") loadReview();
+  if (v === "values") loadValues();
+}
+document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => show(b.dataset.v)));
+
+// ---------- reference data ----------
+async function loadRefs() {
+  const [d, dn, loc, gen, gl] = await Promise.all([
+    sb.from("donations").select("donation_id, received_date, donor_id, donors(name)").order("received_date", { ascending: false }).limit(50),
+    sb.from("donors").select("donor_id, name").order("name"),
+    sb.from("locations").select("code, rack, description").eq("active", true).order("code"),
+    sb.from("generic_items").select("code, name, category, keywords, value_low, value_high, status").order("name"),
+    sb.from("gl_map").select("category").order("category"),
+  ]);
+  for (const r of [d, dn, loc, gen, gl]) if (r.error) return fail(r.error);
+  state.donations = d.data; state.donors = dn.data; state.locations = loc.data; state.generics = gen.data; state.glmap = gl.data;
+  $("#donation").innerHTML = state.donations.map((x) => `<option value="${esc(x.donation_id)}">${esc(x.donation_id)} — ${esc(x.donors?.name)} (${x.received_date})</option>`).join("") || `<option value="">— create a donation first —</option>`;
+  const saved = localStorage.getItem("gik.donation"); if (saved && state.donations.some((x) => x.donation_id === saved)) $("#donation").value = saved;
+  $("#location").innerHTML = `<option value="">(not put away yet)</option>` + state.locations.map((x) => `<option value="${esc(x.code)}">${esc(x.code)} — ${esc(x.description || x.rack)}</option>`).join("");
+  const savedLoc = localStorage.getItem("gik.location"); if (savedLoc) $("#location").value = savedLoc;
+  $("#donorSel").innerHTML = `<option value="">— pick —</option>` + state.donors.map((x) => `<option value="${x.donor_id}">${esc(x.name)}</option>`).join("");
+  $("#vCat").innerHTML = state.glmap.map((x) => `<option>${esc(x.category)}</option>`).join("");
+  $("#dDate").value = new Date().toISOString().slice(0, 10);
+  loadRecent();
+}
+$("#donation").onchange = () => { localStorage.setItem("gik.donation", $("#donation").value); loadRecent(); };
+$("#location").onchange = () => localStorage.setItem("gik.location", $("#location").value);
+
+// ---------- scanning ----------
+$("#scan").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const raw = $("#scan").value.trim(); $("#scan").value = "";
+  if (!raw) return;
+  await handleInput(raw);
+});
+$("#scan").addEventListener("input", () => { const v = $("#scan").value.trim(); if (/[a-z]/i.test(v) && !/^[q@-]/i.test(v)) showHits(v); else $("#hits").innerHTML = ""; });
+
+async function handleInput(raw) {
+  const m = raw.match(/^q(\d{1,4})$/i);
+  if (m) { pendingQty = +m[1]; toast(`Next scan counts as ${pendingQty}`); return; }
+  if (raw === "-") return undoLast();
+  if (/^@/.test(raw) || /^loc\s+/i.test(raw)) {
+    const code = raw.replace(/^@|^loc\s+/i, "").toUpperCase();
+    if (![...$("#location").options].some((o) => o.value === code)) return toast(`Unknown location ${code}`, "bad");
+    $("#location").value = code; localStorage.setItem("gik.location", code); return toast(`Location → ${code}`, "ok");
+  }
+  const gtin = normalizeGtin(raw);
+  if (gtin) return recordScan(gtin);
+  if (/^G-\d{6}$/i.test(raw)) return recordScan(raw.toUpperCase());
+  if (/^\d+$/.test(raw)) return toast(`${raw} is not a valid barcode (check digit failed) — scan again`, "bad");
+  showHits(raw); // words: pick from the list
+}
+
+function showHits(text) {
+  const words = text.toLowerCase().match(/[a-z0-9']+/g)?.filter((w) => w.length > 1) || [];
+  if (!words.length) return ($("#hits").innerHTML = "");
+  const scored = [];
+  for (const g of state.generics) {
+    const name = g.name.toLowerCase(), hay = `${name} ${g.keywords || ""} ${g.category || ""}`.toLowerCase();
+    if (!words.every((w) => hay.includes(w) || (w.endsWith("s") && hay.includes(w.slice(0, -1))))) continue;
+    let s = words.reduce((a, w) => a + (name.includes(w) ? 3 : 1), 0); if (name.startsWith(words[0])) s += 2;
+    scored.push([s, g]);
+  }
+  scored.sort((a, b) => b[0] - a[0] || a[1].name.localeCompare(b[1].name));
+  const top = scored.slice(0, 8);
+  $("#hits").innerHTML = top.map(([, g]) => `<div class="hit" data-code="${g.code}"><span><b>${esc(g.name)}</b> <span class="muted small">${esc(g.category || "")}</span></span><span class="muted small">${g.value_low != null ? `$${g.value_low}–$${g.value_high}` : "no value yet"} · ${g.code}</span></div>`).join("")
+    + `<div class="hit" data-new="${esc(text)}"><span>➕ Not listed — add “${esc(text)}” as a new item (take a photo next)</span></div>`;
+  $("#hits").querySelectorAll(".hit").forEach((h) => (h.onclick = async () => {
+    $("#hits").innerHTML = ""; $("#scan").value = "";
+    if (h.dataset.code) await recordScan(h.dataset.code); else await addGeneric(h.dataset.new);
+    $("#scan").focus();
+  }));
+}
+
+async function recordScan(code) {
+  const donation = $("#donation").value; if (!donation) return toast("Pick or create a donation first", "bad");
+  const qty = pendingQty || Math.max(1, +$("#qty").value || 1); pendingQty = null;
+  let { data: item } = await sb.from("item_master").select("gtin, name, brand, fmv_unit, fmv_status, category").eq("gtin", code).maybeSingle();
+  if (!item) {
+    const guess = await quickLookup(code);
+    const ins = await sb.from("item_master").insert({ gtin: code, name: guess?.name || null, brand: guess?.brand || null, raw_category: guess?.category || null, lookup_source: guess ? "openfacts-web" : null, fmv_status: "unverified" }).select().single();
+    if (ins.error) return fail(ins.error); item = ins.data;
+  }
+  const rec = await sb.from("receipts").insert({ donation_id: donation, gtin: code, qty, location: $("#location").value || null, scanned_by: user.email }).select().single();
+  if (rec.error) return fail(rec.error);
+  state.lastReceipt = rec.data;
+  const price = item.fmv_unit != null ? `$${(+item.fmv_unit).toFixed(2)} <span class="pill ${item.fmv_status === "verified" ? "ok" : "warn"}">${item.fmv_status}</span>` : `<span class="pill warn">price pending</span>`;
+  $("#last").classList.remove("hidden");
+  $("#last").innerHTML = `<div class="big">${qty}</div><div><b>${esc(item.name || "New barcode — name will be looked up tonight")}</b><div class="small muted">${esc(item.brand || "")} ${code} · ${price}</div></div>`;
+  if (navigator.vibrate) navigator.vibrate(40);
+  loadRecent();
+}
+
+async function quickLookup(gtin) {
+  if (gtin.startsWith("G-")) return null;
+  const upc = upcForm(gtin);
+  const dbs = /^0?(978|979)/.test(upc) ? [] : ["world.openfoodfacts.org", "world.openproductsfacts.org", "world.openbeautyfacts.org"];
+  for (const host of dbs) {
+    try {
+      const r = await fetch(`https://${host}/api/v2/product/${upc}.json?fields=product_name,brands,categories`, { headers: { Accept: "application/json" } });
+      if (!r.ok) continue; const j = await r.json();
+      if (j.status === 1 && j.product?.product_name) return { name: j.product.product_name, brand: (j.product.brands || "").split(",")[0] || null, category: (j.product.categories || "").split(",").pop()?.trim() || null };
+    } catch (e) { /* offline or blocked: nightly job will fill it in */ }
+  }
+  return null;
+}
+
+async function addGeneric(text) {
+  const name = text.trim(); if (!name) return;
+  const last = state.generics.map((g) => +g.code.slice(2)).sort((a, b) => b - a)[0] || 0;
+  const code = "G-" + String(last + 1).padStart(6, "0");
+  const g = await sb.from("generic_items").insert({ code, name, category: null, keywords: "", status: "needs_value", added_by: user.email }).select().single();
+  if (g.error) return fail(g.error);
+  const im = await sb.from("item_master").insert({ gtin: code, name, raw_category: "Generic (volunteer added)", fmv_basis: "appraised", fmv_status: "not_found", lookup_source: "generic", notes: "no value yet: photo + staff pricing" });
+  if (im.error) return fail(im.error);
+  state.generics.push(g.data);
+  await recordScan(code);
+  askPhoto(code, name);
+}
+
+function askPhoto(code, name) {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.capture = "environment";
+  toast(`Added ${code}. Now take a photo of “${name}” so staff can price it.`);
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const path = `${code}.jpg`;
+    const up = await sb.storage.from("gik-photos").upload(path, f, { upsert: true, contentType: f.type || "image/jpeg" });
+    if (up.error) return fail(up.error);
+    await sb.from("photos").insert({ gtin: code, path, taken_by: user.email });
+    toast("Photo saved", "ok");
+  };
+  inp.click();
+}
+
+async function undoLast() {
+  const r = state.lastReceipt; if (!r) return toast("Nothing to undo");
+  const del = await sb.from("receipts").delete().eq("receipt_id", r.receipt_id);
+  if (del.error) return fail(del.error);
+  state.lastReceipt = null; toast(`Removed last scan (${r.gtin} × ${r.qty})`, "ok"); $("#last").classList.add("hidden"); loadRecent();
+}
+
+async function loadRecent() {
+  const donation = $("#donation").value; const tb = $("#recent tbody");
+  if (!donation) { tb.innerHTML = ""; $("#unitCount").textContent = "0"; return; }
+  const { data, error } = await sb.from("receipts").select("receipt_id, gtin, qty, location, scanned_at, scanned_by, push_status, item_master(name)").eq("donation_id", donation).order("scanned_at", { ascending: false }).limit(300);
+  if (error) return fail(error);
+  $("#unitCount").textContent = data.reduce((a, r) => a + r.qty, 0).toLocaleString();
+  tb.innerHTML = data.slice(0, 60).map((r) => `<tr><td class="muted small">${new Date(r.scanned_at).toLocaleString([], { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</td><td>${esc(r.item_master?.name || "(looking up)")}</td><td class="small">${r.gtin}</td><td>${r.qty}</td><td>${esc(r.location || "")}</td><td class="small muted">${esc((r.scanned_by || "").split("@")[0])}</td><td>${r.push_status === "staged" ? `<button class="btn sec small" style="padding:2px 8px" data-del="${r.receipt_id}">✕</button>` : ""}</td></tr>`).join("");
+  tb.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => { const d = await sb.from("receipts").delete().eq("receipt_id", b.dataset.del); if (d.error) return fail(d.error); loadRecent(); }));
+}
+
+// ---------- phone camera (Chrome / Android, Safari 17+) ----------
+let camStream = null, camTimer = null;
+$("#btnCamera").onclick = async () => {
+  if (camStream) { stopCam(); return; }
+  if (!("BarcodeDetector" in window)) return toast("This browser can't read barcodes from the camera; use a scanner gun or type the number.", "bad");
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    const v = $("#cam"); v.srcObject = camStream; await v.play(); $("#camwrap").classList.remove("hidden"); $("#btnCamera").textContent = "Stop camera";
+    const det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "itf"] }); let lastCode = "", lastAt = 0;
+    camTimer = setInterval(async () => { try { const codes = await det.detect(v); for (const c of codes) { if (c.rawValue === lastCode && Date.now() - lastAt < 3000) continue; lastCode = c.rawValue; lastAt = Date.now(); await handleInput(c.rawValue); } } catch (e) {} }, 400);
+  } catch (e) { fail(e); }
+};
+function stopCam() { clearInterval(camTimer); camStream?.getTracks().forEach((t) => t.stop()); camStream = null; $("#camwrap").classList.add("hidden"); $("#btnCamera").textContent = "Use phone camera"; }
+
+// ---------- donations ----------
+$("#btnDonation").onclick = async () => {
+  let donorId = $("#donorSel").value; const newName = $("#donorNew").value.trim();
+  if (!donorId && !newName) return toast("Pick a donor or type a new donor name", "bad");
+  if (newName) { const d = await sb.from("donors").insert({ name: newName, type: $("#donorType").value }).select().single(); if (d.error) return fail(d.error); donorId = d.data.donor_id; }
+  const yr = ($("#dDate").value || new Date().toISOString()).slice(0, 4);
+  const { data: ex } = await sb.from("donations").select("donation_id").like("donation_id", `DON-${yr}-%`).order("donation_id", { ascending: false }).limit(1);
+  const n = ex?.length ? +ex[0].donation_id.split("-")[2] + 1 : 1;
+  const donation_id = `DON-${yr}-${String(n).padStart(4, "0")}`;
+  const ins = await sb.from("donations").insert({ donation_id, donor_id: donorId, received_date: $("#dDate").value, bol_number: $("#dBol").value || null, pallets: +$("#dPallets").value || null, notes: $("#dNotes").value || null, created_by: user.email });
+  if (ins.error) return fail(ins.error);
+  toast(`Created ${donation_id}`, "ok"); $("#donorNew").value = ""; $("#dBol").value = ""; $("#dPallets").value = ""; $("#dNotes").value = "";
+  await loadRefs(); $("#donation").value = donation_id; localStorage.setItem("gik.donation", donation_id); loadDonationsTable(); loadRecent();
+};
+async function loadDonationsTable() {
+  const { data, error } = await sb.from("donations").select("donation_id, received_date, pallets, donors(name), receipts(qty, item_master(fmv_unit, fmv_status))").order("received_date", { ascending: false }).limit(100);
+  if (error) return fail(error);
+  $("#donTable tbody").innerHTML = data.map((d) => { const units = d.receipts.reduce((a, r) => a + r.qty, 0); const val = d.receipts.reduce((a, r) => a + (r.item_master?.fmv_status === "verified" ? r.qty * (+r.item_master.fmv_unit || 0) : 0), 0);
+    return `<tr><td>${esc(d.donation_id)}</td><td>${esc(d.donors?.name)}</td><td>${d.received_date}</td><td>${d.pallets ?? ""}</td><td>${units.toLocaleString()}</td><td>$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`; }).join("");
+}
+
+// ---------- review (staff) ----------
+async function loadReview() {
+  const { data, error } = await sb.from("v_review_queue").select("*").order("units_waiting", { ascending: false }).limit(500);
+  if (error) return fail(error);
+  $("#reviewCount").textContent = `${data.length} items`;
+  $("#reviewTable tbody").innerHTML = data.map((r) => { const l = r.gtin.startsWith("G-") ? null : links(r.gtin);
+    return `<tr><td class="small">${r.gtin}</td><td>${esc(r.name || "")}<div class="small muted">${esc(r.brand || "")}</div></td><td class="small">${esc(r.category || "—")}</td><td>${r.fmv_unit != null ? "$" + (+r.fmv_unit).toFixed(2) : ""}</td><td><span class="pill ${r.fmv_status === "not_found" ? "bad" : "warn"}">${r.fmv_status}</span></td><td>${r.units_waiting}</td><td class="small">${l ? `<a href="${l.walmart}" target="_blank">Walmart</a> · <a href="${l.target}" target="_blank">Target</a> · <a href="${l.amazon}" target="_blank">Amazon</a>` : `<a href="#" data-photo="${r.gtin}">photo</a>`}${r.fmv_source_url ? ` · <a href="${esc(r.fmv_source_url)}" target="_blank">found</a>` : ""}</td><td>${isStaff ? `<button class="btn sec small" style="padding:2px 8px" data-verify="${r.gtin}">Verify</button>` : ""}</td></tr>`; }).join("");
+  $("#reviewTable").querySelectorAll("[data-verify]").forEach((b) => (b.onclick = () => openVerify(data.find((x) => x.gtin === b.dataset.verify))));
+  $("#reviewTable").querySelectorAll("[data-photo]").forEach((a) => (a.onclick = async (e) => { e.preventDefault(); const { data: s } = await sb.storage.from("gik-photos").createSignedUrl(`${a.dataset.photo}.jpg`, 600); if (s?.signedUrl) window.open(s.signedUrl); else toast("No photo uploaded for this item yet"); }));
+}
+function openVerify(r) {
+  $("#verifyCard").classList.remove("hidden"); $("#vGtin").textContent = r.gtin; $("#vName").value = r.name || ""; $("#vBrand").value = r.brand || "";
+  $("#vCat").value = r.category || "Uncategorized"; $("#vFmv").value = r.fmv_unit ?? ""; $("#vUrl").value = r.fmv_source_url || ""; $("#vMerchant").value = ""; $("#vNotes").value = r.notes || "";
+  $("#vBasis").value = r.gtin.startsWith("G-") ? "appraised" : "retail"; $("#verifyCard").scrollIntoView({ behavior: "smooth" });
+}
+$("#btnVerifyCancel").onclick = () => $("#verifyCard").classList.add("hidden");
+$("#btnVerify").onclick = async () => {
+  const gtin = $("#vGtin").textContent, fmv = parseFloat($("#vFmv").value), url = $("#vUrl").value.trim();
+  if (!(fmv > 0)) return toast("Enter the unit value", "bad");
+  if (!url && !gtin.startsWith("G-")) return toast("Paste the store page URL that proves the price", "bad");
+  const now = new Date().toISOString();
+  const up = await sb.from("item_master").update({ name: $("#vName").value, brand: $("#vBrand").value || null, category: $("#vCat").value, fmv_unit: fmv, fmv_basis: $("#vBasis").value, fmv_source_url: url || null, fmv_merchant: $("#vMerchant").value || null, fmv_captured_at: now, offer_updated: now.slice(0, 10), fmv_status: "verified", notes: $("#vNotes").value || null, updated_at: now }).eq("gtin", gtin);
+  if (up.error) return fail(up.error);
+  if (url) await sb.from("offers").insert({ gtin, merchant: $("#vMerchant").value || "reviewer", price: fmv, url, condition: "New", source: "manual", offer_date: now.slice(0, 10), usable: true });
+  if (gtin.startsWith("G-")) await sb.from("generic_items").update({ value_low: fmv, value_high: fmv, status: "ok", source: $("#vMerchant").value || "staff estimate" }).eq("code", gtin);
+  toast(`${gtin} verified`, "ok"); $("#verifyCard").classList.add("hidden"); loadReview();
+};
+
+// ---------- values + export ----------
+let valuesCache = [];
+async function loadValues() {
+  const { data, error } = await sb.from("v_values").select("*").order("units_received", { ascending: false }).limit(5000);
+  if (error) return fail(error); valuesCache = data; renderValues();
+}
+function renderValues() {
+  const f = $("#valFilter").value.toLowerCase();
+  const rows = valuesCache.filter((r) => !f || `${r.name} ${r.brand} ${r.gtin}`.toLowerCase().includes(f)).slice(0, 500);
+  $("#valTable tbody").innerHTML = rows.map((r) => `<tr><td class="small">${r.gtin}</td><td>${esc(r.name || "")}<div class="small muted">${esc(r.brand || "")}</div></td><td class="small">${esc(r.category || "")}</td><td>${r.units_received}</td><td>${r.fmv_unit != null ? "$" + (+r.fmv_unit).toFixed(2) : ""}</td><td><span class="pill ${r.fmv_status === "verified" ? "ok" : r.fmv_status === "not_found" ? "bad" : "warn"}">${r.fmv_status}</span></td><td>${r.offers_seen}</td></tr>`).join("");
+}
+$("#valFilter").oninput = renderValues;
+const csvCell = (v) => { v = v == null ? "" : String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+function download(name, rows) { const blob = new Blob([rows.map((r) => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); }
+const MERCHANT_RANK = (m, src) => (src === "manual" || src === "sheet" ? 0 : /walmart/i.test(m) ? 1 : /target/i.test(m) ? 2 : /amazon/i.test(m) ? 3 : 9);
+$("#btnCsv").onclick = async () => {
+  if (!valuesCache.length) await loadValues();
+  const { data: offers, error } = await sb.from("offers").select("gtin, merchant, price, url, offer_date, source, condition").eq("usable", true).limit(50000);
+  if (error) return fail(error);
+  const byG = {}; for (const o of offers) (byG[o.gtin] ||= []).push(o);
+  const head = ["code", "item", "brand", "category", "units_received", "value_used", "basis", "status", "merchant_1", "price_1", "url_1", "date_1", "merchant_2", "price_2", "url_2", "date_2", "merchant_3", "price_3", "url_3", "date_3"];
+  const rows = [head];
+  for (const r of valuesCache) {
+    if (r.gtin.startsWith("G-") && !r.units_received) continue;
+    const seen = new Set(), top = (byG[r.gtin] || []).sort((a, b) => MERCHANT_RANK(a.merchant, a.source) - MERCHANT_RANK(b.merchant, b.source) || (b.offer_date || "").localeCompare(a.offer_date || "")).filter((o) => !seen.has(o.merchant) && seen.add(o.merchant)).slice(0, 3);
+    const row = [r.gtin, r.name, r.brand, r.category, r.units_received, r.fmv_unit, r.fmv_basis, r.fmv_status];
+    for (let i = 0; i < 3; i++) { const o = top[i]; row.push(o?.merchant ?? "", o?.price ?? "", o?.url ?? "", o?.offer_date ?? ""); }
+    rows.push(row);
+  }
+  download(`gik_values_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+};
+$("#btnReceiptsCsv").onclick = async () => {
+  const { data, error } = await sb.from("receipts").select("receipt_id, donation_id, gtin, qty, condition, location, scanned_at, scanned_by, push_status, item_master(name, brand, category, fmv_unit, fmv_status)").order("scanned_at").limit(50000);
+  if (error) return fail(error);
+  const rows = [["receipt_id", "donation_id", "code", "item", "brand", "category", "qty", "unit_value", "value_status", "location", "scanned_at", "scanned_by", "push_status"]];
+  for (const r of data) rows.push([r.receipt_id, r.donation_id, r.gtin, r.item_master?.name, r.item_master?.brand, r.item_master?.category, r.qty, r.item_master?.fmv_unit, r.item_master?.fmv_status, r.location, r.scanned_at, r.scanned_by, r.push_status]);
+  download(`gik_scans_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+};
+
+// keep the scan box focused on the scan screen so a gun always lands there
+document.addEventListener("click", (e) => { if (!$("#v-scan").classList.contains("hidden") && !e.target.closest("input,select,button,a,textarea,.hit")) $("#scan").focus(); });
+</script>
+</body>
+</html>

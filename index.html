@@ -162,7 +162,16 @@ async function onSession(session) {
   $("#nav").classList.remove("hidden");
   await loadRefs(); show("scan");
 }
-sb.auth.onAuthStateChange((_e, session) => onSession(session));
+// Never await Supabase calls inside the auth callback (it holds a lock and deadlocks every later request); defer instead.
+let sessionKey = null;
+sb.auth.onAuthStateChange((_e, session) => {
+  const key = session?.user?.id || "none";
+  if (key === sessionKey) return; // token refreshes: nothing to reload
+  sessionKey = key;
+  setTimeout(() => onSession(session).catch(fail), 0);
+});
+window.addEventListener("unhandledrejection", (e) => fail(e.reason));
+window.addEventListener("error", (e) => fail(e.error || e.message));
 
 // ---------- navigation ----------
 function show(v) {
@@ -248,7 +257,9 @@ function showHits(text) {
 async function recordScan(code) {
   const donation = $("#donation").value; if (!donation) return toast("Pick or create a donation first", "bad");
   const qty = pendingQty || Math.max(1, +$("#qty").value || 1); pendingQty = null;
-  let { data: item } = await sb.from("item_master").select("gtin, name, brand, fmv_unit, fmv_status, category").eq("gtin", code).maybeSingle();
+  toast(`Saving ${code}…`);
+  let { data: item, error: itemErr } = await sb.from("item_master").select("gtin, name, brand, fmv_unit, fmv_status, category").eq("gtin", code).maybeSingle();
+  if (itemErr) return fail(itemErr);
   if (!item) {
     const guess = await quickLookup(code);
     const ins = await sb.from("item_master").insert({ gtin: code, name: guess?.name || null, brand: guess?.brand || null, raw_category: guess?.category || null, lookup_source: guess ? "openfacts-web" : null, fmv_status: "unverified" }).select().single();
@@ -260,6 +271,7 @@ async function recordScan(code) {
   const price = item.fmv_unit != null ? `$${(+item.fmv_unit).toFixed(2)} <span class="pill ${item.fmv_status === "verified" ? "ok" : "warn"}">${item.fmv_status}</span>` : `<span class="pill warn">price pending</span>`;
   $("#last").classList.remove("hidden");
   $("#last").innerHTML = `<div class="big">${qty}</div><div><b>${esc(item.name || "New barcode — name will be looked up tonight")}</b><div class="small muted">${esc(item.brand || "")} ${code} · ${price}</div></div>`;
+  toast(`Saved: ${item.name || code} × ${qty}`, "ok");
   if (navigator.vibrate) navigator.vibrate(40);
   loadRecent();
 }

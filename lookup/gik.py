@@ -36,7 +36,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("GIK_DB", os.path.join(HERE, "gik.db"))
@@ -140,6 +140,19 @@ GS1_PREFIXES = [
     ("037000", "Procter & Gamble", "Apparel & hygiene"), ("035000", "Colgate-Palmolive", "Apparel & hygiene"),
     ("036000", "Kimberly-Clark", "Apparel & hygiene"), ("041333", "Duracell", "Household & lighting"),
     ("039800", "Energizer", "Household & lighting"),
+]
+
+
+WAREHOUSE_LOCATIONS = [  # (code, rack, description) — from "Storage: Warehouse ABC Inventory", FY26 OPS layout
+    ("A-RACK", "A", "A-Rack: bulk incentive overflow"), ("STEAM", "A", "STEAM"),
+    ("B-CORE", "B", "B-Rack: core and incentives"), ("B01Z", "B", "B-Rack bin 01"), ("B02Z", "B", "B-Rack bin 02"),
+    ("B-INC", "B", "B-Rack: incentives only"), ("B15Z", "B", "B-Rack bin 15"), ("B16Z", "B", "B-Rack bin 16"),
+    ("C-RACK", "C", "C-Rack: writing utensils, copy paper 5-9"), ("C01Z", "C", "C-Rack bin 01"), ("C02Z", "C", "C-Rack bin 02"), ("C03Z", "C", "C-Rack bin 03"),
+    ("D-RACK", "D", "D-Rack: glue, scissors, tape, erasers, paper items"), ("D01Z", "D", "D-Rack bin 01"), ("D02Z", "D", "D-Rack bin 02"), ("D03Z", "D", "D-Rack bin 03"),
+    ("E-GEN", "E", "E-Rack: general overflow"), ("E-INC", "E", "E-Rack: incentive overflow"), ("E-OLDINC", "E", "E-Rack: old incentive overflow"),
+    ("E15Z", "E", "E-Rack bin 15"), ("E16Z", "E", "E-Rack bin 16"), ("E17Z", "E", "E-Rack bin 17"), ("E18Z", "E", "E-Rack bin 18"),
+    ("F-AAS", "F", "F-Rack: AAS"), ("OPS", "OPS", "OPS staging"), ("ESP", "ESP", "ESP"), ("WISHLIST", "ESP", "Wish List & ESP"),
+    ("DOCK", "DOCK", "Receiving dock, not yet put away"),
 ]
 
 
@@ -250,6 +263,13 @@ def migrate(conn):
     for col, ddl in (("fmv_merchant", "TEXT"), ("notes", "TEXT"), ("offer_updated", "TEXT")):
         if col not in cols:
             conn.execute(f"ALTER TABLE item_master ADD COLUMN {col} {ddl}")
+    rcols = {r["name"] for r in conn.execute("PRAGMA table_info(receipts)")}
+    if "location" not in rcols:
+        conn.execute("ALTER TABLE receipts ADD COLUMN location TEXT")  # rack/bin code, e.g. C03Z
+    # Warehouse locations from the FY26 OPS layout; add rows as the floor changes.
+    conn.execute("""CREATE TABLE IF NOT EXISTS locations (
+        code TEXT PRIMARY KEY, rack TEXT NOT NULL, description TEXT, active INTEGER NOT NULL DEFAULT 1)""")
+    conn.executemany("INSERT OR IGNORE INTO locations (code, rack, description) VALUES (?,?,?)", WAREHOUSE_LOCATIONS)
     conn.execute("""CREATE TABLE IF NOT EXISTS gs1_prefix (
         prefix TEXT PRIMARY KEY, company TEXT NOT NULL, default_category TEXT)""")
     # Every merchant price ever seen for a barcode, from any source. The values export picks three per item.
@@ -517,6 +537,57 @@ def parse_googlebooks(data: dict):
             "raw_category": "Books > " + " / ".join(info.get("categories") or []), "price": price, "url": url, "merchant": merchant}
 
 
+# ---------------------------------------------------------------- UPC Database (upcdatabase.org, free key, 100 lookups/day)
+
+UPCDATABASE_URL = "https://api.upcdatabase.org/product/{code}"
+
+
+def upcdatabase_key():
+    key = os.environ.get("UPCDATABASE_KEY")
+    if key:
+        return key.strip()
+    path = os.path.join(HERE, "upcdatabase_key.txt")
+    if os.path.exists(path):
+        lines = [l.strip() for l in open(path) if l.strip() and not l.strip().startswith("#")]
+        if lines:
+            return lines[0]
+    return None
+
+
+def fetch_upcdatabase(gtin14: str):
+    """Second general source. Returns (status, body, item) with item in UPCitemdb's shape
+    (title, brand, category, offers[]) so the same pricing rules apply; item is None on a miss."""
+    key = upcdatabase_key()
+    if not key:
+        return 0, json.dumps({"error": "no UPC Database key"}), None
+    st, body = http_get(UPCDATABASE_URL.format(code=gtin_for_lookup(gtin14)), headers={"Authorization": "Bearer " + key})
+    if st != 200:
+        return st, body, None
+    item = parse_upcdatabase(body, gtin14)
+    return (st, body, item) if item else (404, body, None)
+
+
+def parse_upcdatabase(body: str, gtin14: str):
+    try:
+        d = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if str(d.get("success")).lower() != "true" or not (d.get("title") or d.get("description")):
+        return None
+    offers = []
+    for s in d.get("stores") or []:
+        if not isinstance(s, dict) or not s.get("price"):
+            continue
+        link = s.get("link") or s.get("url") or next((v for v in s.values() if isinstance(v, str) and v.startswith("http")), None)
+        offers.append({"merchant": s.get("store") or "store", "price": s["price"], "link": link, "condition": "New",
+                       "title": d.get("title") or "", "updated_t": int(time.time())})
+    if d.get("msrp") not in (None, "", "0", 0, "0.00"):
+        offers.append({"merchant": "MSRP (UPC Database)", "price": d["msrp"], "link": f"https://upcdatabase.org/code/{gtin_for_lookup(gtin14)}",
+                       "condition": "New", "title": d.get("title") or "", "updated_t": int(time.time())})
+    return {"title": d.get("title") or d.get("description") or "", "brand": d.get("brand") or d.get("manufacturer"),
+            "category": d.get("category") or "", "offers": offers}
+
+
 # ---------------------------------------------------------------- eBay Browse API (free developer account, 5,000 calls/day)
 
 EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
@@ -664,8 +735,61 @@ def pick_fmv(offers):
     return {"price": round(price, 2), "url": url, "merchant": merchant, "n": len(usable), "newest_ts": newest, "note": note}
 
 
+def fetch_openprices(gtin14: str):
+    """Open Prices (prices.openfoodfacts.org): free, keyless, crowd-sourced shelf prices from receipts and price tags.
+    Returns (http_status, raw_body, offers) with USD prices from the last two years only."""
+    code = gtin14[1:] if gtin14.startswith("0") else gtin14  # Open Food Facts stores UPC-A as 13-digit EAN
+    st, body = http_get(f"https://prices.openfoodfacts.org/api/v1/prices?product_code={code}&size=50&order_by=-date")
+    offers = []
+    if st == 200:
+        try:
+            cutoff = (datetime.now() - timedelta(days=STALE_DAYS)).date().isoformat()
+            for it in json.loads(body).get("items") or []:
+                if (it.get("currency") or "").upper() != "USD" or not it.get("price") or (it.get("date") or "") < cutoff:
+                    continue
+                loc = it.get("location") or {}
+                merchant = loc.get("osm_name") or loc.get("osm_brand") or "store (Open Prices)"
+                offers.append({"merchant": merchant, "price": float(it["price"]), "condition": "New",
+                               "link": f"https://prices.openfoodfacts.org/prices/{it.get('id')}" if it.get("id") else
+                                       f"https://prices.openfoodfacts.org/products/{code}",
+                               "title": (it.get("product") or {}).get("product_name") or "",
+                               "updated_t": int(datetime.fromisoformat(it["date"]).timestamp()) if it.get("date") else 0})
+        except (ValueError, KeyError, TypeError):
+            pass
+    return st, body, offers
+
+
+def maybe_openprices(conn, gtin14: str, now: str):
+    """If the item still has no price, try Open Prices; take the median USD shelf price, with the matching receipt link."""
+    if gtin14.startswith("G-"):
+        return None
+    row = conn.execute("SELECT fmv_unit, fmv_status FROM item_master WHERE gtin=?", (gtin14,)).fetchone()
+    if row and (row["fmv_unit"] is not None or row["fmv_status"] == "verified"):
+        return None
+    if conn.execute("SELECT 1 FROM lookup_log WHERE gtin=? AND source='openprices' AND requested_at > datetime('now','-7 days')", (gtin14,)).fetchone():
+        return None  # asked recently; crowd data changes slowly
+    st, body, offers = fetch_openprices(gtin14)
+    conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)", (gtin14, "openprices", st, body[:20000]))
+    record_offers(conn, gtin14, offers, "openprices")
+    if not offers:
+        return None
+    ranked = sorted(offers, key=lambda o: o["price"])
+    pick = ranked[len(ranked) // 2]
+    note = f"Open Prices median of {len(offers)} shelf price(s); confirm at a store" + (" (single report)" if len(offers) == 1 else "")
+    conn.execute("""INSERT INTO item_master (gtin, name, fmv_unit, fmv_source_url, fmv_merchant, fmv_captured_at, fmv_status, lookup_source, notes, updated_at)
+                    VALUES (?,?,?,?,?,?,'unverified','openprices',?,?)
+                    ON CONFLICT(gtin) DO UPDATE SET name=COALESCE(item_master.name, excluded.name),
+                      fmv_unit=excluded.fmv_unit, fmv_source_url=excluded.fmv_source_url, fmv_merchant=excluded.fmv_merchant,
+                      fmv_captured_at=excluded.fmv_captured_at, fmv_status='unverified', notes=excluded.notes, updated_at=excluded.updated_at""",
+                 (gtin14, (pick.get("title") or None), pick["price"], pick["link"], pick["merchant"], now, note, now))
+    return {"price": pick["price"], "url": pick["link"], "merchant": pick["merchant"]}
+
+
 def maybe_ebay(conn, gtin14: str, now: str):
     """If the item still has no price and eBay keys are configured, price it from new fixed-price eBay listings."""
+    op = maybe_openprices(conn, gtin14, now)
+    if op:
+        return op
     if not ebay_keys()[0]:
         return None
     row = conn.execute("SELECT fmv_unit, fmv_status FROM item_master WHERE gtin=?", (gtin14,)).fetchone()
@@ -814,6 +938,13 @@ def do_lookup(conn, gtin14: str, mock=False, api_key=None, source_label=None, th
     except json.JSONDecodeError:
         data = {}
     items = data.get("items") or []
+    if (status != 200 or not items) and not mock and upcdatabase_key() and \
+            not conn.execute("SELECT 1 FROM lookup_log WHERE gtin=? AND source='upcdatabase' AND http_status IN (200,404) LIMIT 1", (gtin14,)).fetchone():
+        # UPCitemdb throttled or empty: try UPC Database (second free general source) before giving up
+        st2, body2, item2 = fetch_upcdatabase(gtin14)
+        conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)", (gtin14, "upcdatabase", st2, body2))
+        if item2:
+            status, items, source = 200, [item2], "upcdatabase"
     if status == 429 or status == 0:
         # throttled (free tier: "TOO_FAST") or no network — not a miss. Leave a placeholder row;
         # `gik.py retry` picks these up later.
@@ -944,6 +1075,12 @@ def pending_lookups(conn, include_misses=False):
                                   AND l.source IN ('openfoodfacts','openproductsfacts','openbeautyfacts')) < 3"""):
         if r["gtin"] not in out:
             out.append(r["gtin"])
+    # UPCitemdb said no, but UPC Database has not been asked yet (only when its key is configured)
+    if upcdatabase_key():
+        for r in conn.execute("""SELECT gtin FROM item_master im WHERE fmv_status <> 'verified' AND fmv_unit IS NULL AND gtin NOT LIKE 'G-%'
+                                 AND NOT EXISTS (SELECT 1 FROM lookup_log l WHERE l.gtin = im.gtin AND l.source = 'upcdatabase')"""):
+            if r["gtin"] not in out:
+                out.append(r["gtin"])
     # anything still unpriced that eBay has not been asked about (only when eBay keys are configured)
     if ebay_keys()[0]:
         for r in conn.execute("""SELECT gtin FROM item_master im WHERE fmv_status <> 'verified' AND fmv_unit IS NULL AND gtin NOT LIKE 'G-%'
@@ -955,13 +1092,16 @@ def pending_lookups(conn, include_misses=False):
 
 def last_upc_status(conn, gtin14):
     """HTTP status of the last UPCitemdb answer, with a 200 that carried no items reported as 404."""
-    r = conn.execute("""SELECT http_status, raw_response FROM lookup_log WHERE gtin=? AND source IN ('upcitemdb','mock')
+    r = conn.execute("""SELECT http_status, raw_response, source FROM lookup_log WHERE gtin=? AND source IN ('upcitemdb','mock','upcdatabase')
                         ORDER BY log_id DESC LIMIT 1""", (gtin14,)).fetchone()
     if not r:
         return None
     if r["http_status"] == 200:
         try:
-            if not (json.loads(r["raw_response"]).get("items") or []):
+            d = json.loads(r["raw_response"])
+            if r["source"] == "upcdatabase":
+                return 200 if str(d.get("success")).lower() == "true" else 404
+            if not (d.get("items") or []):
                 return 404
         except json.JSONDecodeError:
             return 404
@@ -973,6 +1113,8 @@ def cmd_retry(args):
     conn = connect()
     api_key = os.environ.get("UPCITEMDB_KEY")
     todo = pending_lookups(conn, include_misses=args.all)
+    if getattr(args, "max", 0):
+        todo = todo[:args.max]
     gap = 1.0 if api_key else args.gap
     print(f"{len(todo)} barcodes to look up, {gap:.0f}s apart" + (" (including earlier misses)" if args.all else ""))
     found = misses = 0
@@ -984,7 +1126,9 @@ def cmd_retry(args):
         if books_blocked and isbn_from_gtin(gtin):
             continue
         # don't spend a UPCitemdb call on a barcode it already said 404 to, unless --all
-        skip_upc = (not args.all) and last_upc_status(conn, gtin) in (200, 404)  # it already answered; nothing new to buy
+        # UPCitemdb already answered: skip it, unless UPC Database is configured and has not been asked yet
+        asked_upcdb = conn.execute("SELECT 1 FROM lookup_log WHERE gtin=? AND source='upcdatabase' LIMIT 1", (gtin,)).fetchone() is not None
+        skip_upc = (not args.all) and last_upc_status(conn, gtin) in (200, 404) and (asked_upcdb or not upcdatabase_key())
         res = do_lookup(conn, gtin, mock=args.mock, api_key=api_key, thorough=True, skip_upc=skip_upc)
         if res["status"] == "named":
             found += 1; print(f"  {gtin}  {(res['name'] or '')[:50]:<50} {res['category'] or 'Uncategorized?':<24} FMV? (named via open data; price from store links)")
@@ -1021,20 +1165,25 @@ def cmd_refresh(args):
     now = datetime.now().isoformat(timespec="seconds")
     n = 0
     for it in conn.execute("SELECT gtin FROM item_master WHERE fmv_status <> 'verified'").fetchall():
-        log = conn.execute("""SELECT raw_response FROM lookup_log WHERE gtin=? AND http_status=200
-                              AND source NOT IN ('googlebooks','openlibrary','openfoodfacts','openproductsfacts','openbeautyfacts')
+        log = conn.execute("""SELECT raw_response, source FROM lookup_log WHERE gtin=? AND http_status=200
+                              AND source NOT IN ('googlebooks','openlibrary','openfoodfacts','openproductsfacts','openbeautyfacts','ebay')
                               ORDER BY log_id DESC LIMIT 1""",
                            (it["gtin"],)).fetchone()
         if not log:
             continue
-        try:
-            items = json.loads(log["raw_response"]).get("items") or []
-        except json.JSONDecodeError:
-            continue
-        if not items:
-            continue
-        item = items[0]
-        record_offers(conn, it["gtin"], item.get("offers") or [], "upcitemdb")
+        if log["source"] == "upcdatabase":
+            item = parse_upcdatabase(log["raw_response"], it["gtin"])
+            if not item:
+                continue
+        else:
+            try:
+                items = json.loads(log["raw_response"]).get("items") or []
+            except json.JSONDecodeError:
+                continue
+            if not items:
+                continue
+            item = items[0]
+        record_offers(conn, it["gtin"], item.get("offers") or [], log["source"])
         pick = pick_fmv(item.get("offers") or [])
         title = item.get("title") or ""
         raw_cat = item.get("category") or ""
@@ -1127,6 +1276,7 @@ HELP = """
 Scan a barcode (the gun types it and presses Enter).
 No barcode? Type what it is (e.g. "table lamp", "mason jar") and pick from the list.
 Commands:
+  @C03Z   set the rack/bin for everything scanned next (scan a location label, or type it); @DOCK = not put away yet
   q<N>    set quantity for the NEXT scan, e.g. q24 for a case of 24
   -       undo the last scan
   ?       show the running count for this donation
@@ -1147,6 +1297,9 @@ def cmd_intake(args):
     pending_qty = 1
     last_receipt = None
     cooldown_until = 0.0  # after a 429, stop live lookups for a minute; `retry` catches up later
+    location = args.location.upper() if getattr(args, "location", None) else None
+    if location:
+        print(f"  location: {location}")
     while True:
         try:
             line = input("scan> ").strip()
@@ -1174,6 +1327,16 @@ def cmd_intake(args):
         if m:
             pending_qty = max(1, int(m.group(1)))
             print(f"  next scan counts as {pending_qty}")
+            continue
+        m = re.fullmatch(r"(?:@|loc\s+)([a-z0-9\-]{2,12})", low)
+        if m:
+            code = m.group(1).upper()
+            row = conn.execute("SELECT description FROM locations WHERE code=? AND active=1", (code,)).fetchone()
+            if row:
+                location = code
+                print(f"  location set to {code} ({row['description']}) for the scans that follow")
+            else:
+                print(f"  ! {code} is not a known location. Known: " + ", ".join(r[0] for r in conn.execute("SELECT code FROM locations WHERE active=1 ORDER BY code")))
             continue
         gtin = normalize_gtin(line)
         if not gtin and re.search(r"[a-zA-Z]{2,}", line):
@@ -1203,14 +1366,15 @@ def cmd_intake(args):
                 elif res.get("note"):
                     print(f"  note: {res['note']}")
             item = conn.execute("SELECT * FROM item_master WHERE gtin = ?", (gtin,)).fetchone()
-        cur = conn.execute("INSERT INTO receipts (donation_id, gtin, qty, scanned_by) VALUES (?,?,?,?)",
-                           (args.donation_id, gtin, pending_qty, args.by))
+        cur = conn.execute("INSERT INTO receipts (donation_id, gtin, qty, scanned_by, location) VALUES (?,?,?,?,?)",
+                           (args.donation_id, gtin, pending_qty, args.by, location))
         conn.commit()
         last_receipt = cur.lastrowid
         name = item["name"] or "(unknown item)"
         fmv = f"${item['fmv_unit']:.2f}" if item["fmv_unit"] else "FMV?"
         flag = "" if item["fmv_status"] == "verified" else f"  [{item['fmv_status']}]"
-        print(f"  +{pending_qty}  {name[:48]:<48} {item['category'] or 'Uncategorized?':<22} {fmv}{flag}")
+        where = f"  @{location}" if location else ""
+        print(f"  +{pending_qty}  {name[:48]:<48} {item['category'] or 'Uncategorized?':<22} {fmv}{flag}{where}")
         pending_qty = 1
     show_running(conn, args.donation_id)
 
@@ -1315,6 +1479,21 @@ def cmd_export(args):
         return cmd_export_master(conn, args.out)
     if args.what == "values":
         return cmd_export_values(conn, args.out)
+    if args.what == "receipts":
+        path = os.path.join(args.out, "receipts.csv")
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["receipt_id", "donation_id", "donor", "received_date", "scanned_at", "scanned_by", "location", "upc_or_code",
+                        "item", "category", "qty", "unit_value", "line_value", "fmv_status", "push_status"])
+            for r in conn.execute("""SELECT r.*, d.received_date, dn.name donor, im.name item, im.category, im.fmv_unit, im.fmv_status
+                                     FROM receipts r JOIN donations d ON d.donation_id=r.donation_id JOIN donors dn ON dn.donor_id=d.donor_id
+                                     JOIN item_master im ON im.gtin=r.gtin ORDER BY r.receipt_id"""):
+                unit = r["fmv_unit"] if r["fmv_unit"] is not None else ""
+                w.writerow([r["receipt_id"], r["donation_id"], r["donor"], r["received_date"], r["scanned_at"], r["scanned_by"] or "",
+                            r["location"] or "", r["gtin"][-12:] if r["gtin"].startswith("00") else r["gtin"], r["item"] or "", r["category"] or "",
+                            r["qty"], unit, round(r["qty"] * r["fmv_unit"], 2) if r["fmv_unit"] is not None else "", r["fmv_status"], r["push_status"]])
+        print(f"Wrote {path}")
+        return
     if args.what == "je":
         rows = conn.execute("SELECT * FROM v_journal_lines ORDER BY donation_id, category").fetchall()
         if not rows:
@@ -1559,6 +1738,51 @@ def cmd_links(args):
     print(f"  google   {GOOGLE_SHOPPING.format(upc=gtin_for_lookup(gtin))}")
 
 
+def cmd_locations(args):
+    conn = connect()
+    if args.action == "add":
+        conn.execute("INSERT OR REPLACE INTO locations (code, rack, description, active) VALUES (?,?,?,1)",
+                     (args.code.upper(), (args.rack or args.code[0]).upper(), args.description or args.code.upper()))
+        conn.commit(); print(f"Added location {args.code.upper()}")
+    elif args.action == "retire":
+        conn.execute("UPDATE locations SET active=0 WHERE code=?", (args.code.upper(),)); conn.commit()
+        print(f"Retired {args.code.upper()} (history kept)")
+    else:
+        print(f"{'Code':<10}{'Rack':<6}{'Units':>8}  Description")
+        for r in conn.execute("""SELECT l.code, l.rack, l.description, l.active, COALESCE(SUM(r.qty),0) units
+                                 FROM locations l LEFT JOIN receipts r ON r.location = l.code
+                                 GROUP BY l.code ORDER BY l.rack, l.code"""):
+            print(f"{r['code']:<10}{r['rack']:<6}{r['units']:>8}  {r['description']}{'' if r['active'] else '  (retired)'}")
+        n = conn.execute("SELECT COALESCE(SUM(qty),0) FROM receipts WHERE location IS NULL").fetchone()[0]
+        if n:
+            print(f"{'(none)':<10}{'':<6}{n:>8}  scanned before locations existed, or without a location set")
+
+
+def cmd_labels(args):
+    """Printable sheet of scannable command barcodes: one per location plus q12/q24/q48 and the undo/finish commands.
+    Uses JsBarcode from cdnjs, so open it with internet access, then print (works offline afterwards as a PDF)."""
+    conn = connect()
+    os.makedirs(args.out, exist_ok=True)
+    path = os.path.join(args.out, "scan_labels.html")
+    locs = conn.execute("SELECT code, description FROM locations WHERE active=1 ORDER BY rack, code").fetchall()
+    cmds = [("q12", "Next scan = case of 12"), ("q24", "Next scan = case of 24"), ("q48", "Next scan = case of 48"),
+            ("-", "Undo last scan"), ("?", "Show running count"), ("x", "Finish session")]
+    cells = []
+    for code, desc in [("@" + r["code"], r["description"]) for r in locs] + cmds:
+        cells.append(f'<div class="label"><svg class="bc" jsbarcode-value="{code}"></svg><div class="t">{code}</div><div class="d">{desc}</div></div>')
+    html = f"""<!doctype html><html><head><meta charset="utf-8"><title>GIK scan labels</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<style>body{{font-family:Arial,sans-serif;margin:16px}} h1{{font-size:18px;margin:0 0 4px}} p{{margin:0 0 12px;color:#444;font-size:12px}}
+.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}} .label{{border:1px solid #999;border-radius:6px;padding:8px;text-align:center;page-break-inside:avoid}}
+.t{{font-weight:bold;font-size:16px}} .d{{font-size:11px;color:#333}} @media print{{.grid{{gap:6px}}}}</style></head><body>
+<h1>GIK intake: scan labels</h1><p>Scan a location label before putting a pallet away; everything scanned after it is recorded there. Scan a q-label before a sealed case. Laminate and keep at the dock.</p>
+<div class="grid">{''.join(cells)}</div>
+<script>JsBarcode(".bc", {{format:"CODE128", width:2, height:48, displayValue:false, margin:4}});</script></body></html>"""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Wrote {path}  ({len(locs)} location labels + {len(cmds)} command labels). Open in a browser and print.")
+
+
 def cmd_pushed(args):
     conn = connect()
     n = conn.execute("UPDATE receipts SET push_status='pushed', ns_tran_id=? WHERE export_batch=? AND push_status='exported'",
@@ -1575,6 +1799,11 @@ def cmd_report(_args):
                              JOIN donations d ON d.donation_id=r.donation_id JOIN donors dn ON dn.donor_id=d.donor_id
                              WHERE im.fmv_status='verified' GROUP BY dn.name ORDER BY fmv DESC"""):
         print(f"  {r['name']:<35}{r['units']:>8} units  ${r['fmv']:>12,.2f}")
+    print("\nBy warehouse location (all receipts)")
+    for r in conn.execute("""SELECT COALESCE(r.location,'(none)') loc, COUNT(DISTINCT r.gtin) skus, SUM(r.qty) units,
+                             ROUND(SUM(r.qty*COALESCE(im.fmv_unit,0)),2) fmv FROM receipts r JOIN item_master im ON im.gtin=r.gtin
+                             GROUP BY loc ORDER BY units DESC"""):
+        print(f"  {r['loc']:<12}{r['skus']:>5} SKUs {r['units']:>8} units  ${r['fmv']:>12,.2f}")
     print("\nBy category (ASU 2020-07 disclosure roll-up)")
     for r in conn.execute("""SELECT im.category, SUM(r.qty) units, ROUND(SUM(r.qty*im.fmv_unit),2) fmv
                              FROM receipts r JOIN item_master im ON im.gtin=r.gtin
@@ -1582,6 +1811,238 @@ def cmd_report(_args):
         print(f"  {(r['category'] or 'Uncategorized'):<35}{r['units']:>8} units  ${r['fmv']:>12,.2f}")
     q = conn.execute("SELECT COUNT(*) n, COALESCE(SUM(units_waiting),0) u FROM v_review_queue").fetchone()
     print(f"\nReview queue: {q['n']} barcodes, {q['u']} units waiting\n")
+
+# ---------------------------------------------------------------- cloud (Supabase Postgres, schema "gik")
+
+CLOUD_TABLES = ["donors", "donations", "gl_map", "gs1_prefix", "locations", "item_master", "generic_items",
+                "receipts", "offers", "item_links", "lookup_log"]
+CLOUD_DEFAULT_URI = "postgresql://postgres.zwqlbnnvbcvktfcqwwvb:[YOUR-PASSWORD]@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+CLOUD_SEQUENCES = {"donors": ("donor_id", "donors_donor_id_seq"), "receipts": ("receipt_id", "receipts_receipt_id_seq"),
+                   "offers": ("offer_id", "offers_offer_id_seq"), "lookup_log": ("log_id", "lookup_log_log_id_seq")}
+
+
+def cloud_url():
+    """Postgres connection URI from supabase_db.txt (one line) or the GIK_DATABASE_URL environment variable."""
+    url = os.environ.get("GIK_DATABASE_URL", "").strip()
+    if not url and os.environ.get("GIK_DB_PASSWORD"):
+        from urllib.parse import quote
+        url = CLOUD_DEFAULT_URI.replace("[YOUR-PASSWORD]", quote(os.environ["GIK_DB_PASSWORD"].strip(), safe=""))
+    path = os.path.join(HERE, "supabase_db.txt")
+    if not url and os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            lines = [ln.strip().lstrip("﻿") for ln in f if ln.strip() and not ln.lstrip("﻿").startswith("#")]
+            url = lines[0] if lines else ""
+            if url and "://" not in url:
+                # The file holds just the password: use TEP's Session-pooler address.
+                lines = [CLOUD_DEFAULT_URI, url]
+                url = CLOUD_DEFAULT_URI
+            # Convenience: the database password may be on the second line instead of edited into the URI.
+            if "[YOUR-PASSWORD]" in url and len(lines) > 1:
+                from urllib.parse import quote
+                url = url.replace("[YOUR-PASSWORD]", quote(lines[1], safe=""))
+    if not url or "[YOUR-PASSWORD]" in url:
+        sys.exit("No cloud connection string. In Supabase: project tep-teacher-platform > Connect > Session pooler, copy the\n"
+                 "URI, replace [YOUR-PASSWORD] with the database password, and save it as the only line of supabase_db.txt next to gik.py.")
+    return url
+
+
+def cloud_connect():
+    try:
+        import psycopg2  # noqa
+    except ImportError:
+        print("Installing psycopg2-binary (one time)...")
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "psycopg2-binary"])
+        import psycopg2  # noqa
+    import psycopg2
+    pg = psycopg2.connect(cloud_url())
+    pg.autocommit = False
+    with pg.cursor() as cur:
+        cur.execute("set search_path = gik, public")
+    return pg
+
+
+def cloud_columns(pg, table):
+    with pg.cursor() as cur:
+        cur.execute("""select column_name, data_type from information_schema.columns
+                       where table_schema='gik' and table_name=%s order by ordinal_position""", (table,))
+        cols = cur.fetchall()
+        cur.execute("""select kcu.column_name from information_schema.table_constraints tc
+                       join information_schema.key_column_usage kcu on kcu.constraint_name=tc.constraint_name and kcu.table_schema=tc.table_schema
+                       where tc.table_schema='gik' and tc.table_name=%s and tc.constraint_type='PRIMARY KEY' order by kcu.ordinal_position""", (table,))
+        pk = [r[0] for r in cur.fetchall()]
+    return {c: t for c, t in cols}, pk
+
+
+def _pg_value(v, dt):
+    if v is None:
+        return None
+    if dt == "boolean":
+        return bool(v)
+    if isinstance(v, str):
+        if dt in ("integer", "bigint", "numeric") and v.strip() == "":
+            return None
+        return v.replace("\x00", "")
+    return v
+
+
+def _sqlite_value(v):
+    import decimal
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, decimal.Decimal):
+        return float(v)
+    if hasattr(v, "isoformat"):
+        return v.isoformat(sep=" ") if hasattr(v, "hour") else v.isoformat()
+    return v
+
+
+# How each table goes up from a computer's gik.db. Rows created on the web app get their ids from the cloud,
+# so a computer never sends its own receipt/offer/log ids (they would collide); duplicates are caught by
+# natural keys instead. Anything a person verified in the cloud is never overwritten.
+PUSH_RULES = {
+    "donors":        {"conflict": "do nothing"},
+    "donations":     {"conflict": "do nothing"},
+    "gl_map":        {"conflict": "do nothing"},
+    "gs1_prefix":    {"conflict": "do nothing"},
+    "locations":     {"conflict": "do nothing"},
+    "generic_items": {"conflict": "do nothing"},
+    "item_master":   {"conflict": "update unless verified"},
+    "item_links":    {"conflict": "update"},
+    "receipts":      {"drop": ["receipt_id"], "origin": True, "conflict": "do nothing"},
+    "offers":        {"drop": ["offer_id"], "conflict": "do nothing"},
+    "lookup_log":    {"drop": ["log_id"], "conflict": "do nothing"},
+}
+
+
+def _push_rows(cur, pg, table, local_cols, rows):
+    """Insert rows (sequence of tuples matching local_cols) into gik.<table> following PUSH_RULES."""
+    rule = PUSH_RULES[table]
+    pg_cols, pk = cloud_columns(pg, table)
+    cols = [c for c in local_cols if c in pg_cols and c not in rule.get("drop", [])]
+    idx = [local_cols.index(c) for c in cols]
+    out_cols = cols + (["origin"] if rule.get("origin") else [])
+    data = []
+    for r in rows:
+        vals = [_pg_value(r[i], pg_cols[c]) for i, c in zip(idx, cols)]
+        if rule.get("origin"):
+            d = dict(zip(local_cols, r))
+            vals.append(f"{str(d.get('scanned_at'))[:19]}|{d.get('gtin')}|{d.get('receipt_id')}")
+        data.append(tuple(vals))
+    if not data:
+        return 0
+    if rule["conflict"] == "do nothing":
+        tail = "on conflict do nothing"
+    else:
+        upd = [c for c in cols if c not in pk]
+        tail = f"on conflict ({','.join(pk)}) do update set " + ", ".join(f"{c}=excluded.{c}" for c in upd)
+        if rule["conflict"] == "update unless verified":
+            tail += f" where gik.{table}.fmv_status <> 'verified'"
+    cur.executemany(f"insert into gik.{table} ({','.join(out_cols)}) values ({','.join(['%s'] * len(out_cols))}) {tail}", data)
+    return len(data)
+
+
+def cloud_pull(conn, pg):
+    """Copy the cloud gik schema into this (scratch) gik.db; cloud wins. Used by `cloud sync`."""
+    counts = {}
+    with pg.cursor() as cur:
+        for t in CLOUD_TABLES:
+            local_cols = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
+            if not local_cols:
+                continue
+            pg_cols, _ = cloud_columns(pg, t)
+            cols = [c for c in local_cols if c in pg_cols]
+            pk = [r[1] for r in sorted(conn.execute(f"PRAGMA table_info({t})"), key=lambda r: r[5]) if r[5]]
+            cur.execute(f"select {','.join(cols)} from gik.{t}")
+            rows = cur.fetchall()
+            upd = [c for c in cols if c not in pk]
+            tail = (f"ON CONFLICT({','.join(pk)}) DO UPDATE SET " + ", ".join(f"{c}=excluded.{c}" for c in upd)) if pk and upd else "ON CONFLICT DO NOTHING"
+            conn.executemany(f"INSERT INTO {t} ({','.join(cols)}) VALUES ({','.join(['?'] * len(cols))}) {tail}",
+                             [tuple(_sqlite_value(v) for v in r) for r in rows])
+            counts[t] = len(rows)
+    conn.commit()
+    return counts
+
+
+def cmd_cloud(args):
+    """cloud push: merge this computer's gik.db into the Supabase gik schema (safe to re-run, never clobbers web scans
+       or verified values). cloud status: row counts. cloud sync: pull the cloud into a scratch db, run the free
+       lookups for every barcode still missing a name/price, and push back only what the lookups found."""
+    conn = connect()
+    pg = cloud_connect()
+    local_tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if args.action == "status":
+        print(f"{'table':<14}{'local':>8}{'cloud':>8}")
+        with pg.cursor() as cur:
+            for t in CLOUD_TABLES:
+                n_local = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] if t in local_tables else 0
+                cur.execute(f"select count(*) from gik.{t}")
+                print(f"{t:<14}{n_local:>8}{cur.fetchone()[0]:>8}")
+        pg.close()
+        return
+    if args.action == "sync":
+        return cloud_sync(conn, pg, args)
+    total = 0
+    try:
+        with pg.cursor() as cur:
+            for t in CLOUD_TABLES:
+                if t not in local_tables:
+                    continue
+                local_cols = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
+                rows = conn.execute(f"SELECT {','.join(local_cols)} FROM {t}").fetchall()
+                n = _push_rows(cur, pg, t, local_cols, [tuple(r) for r in rows])
+                total += n
+                print(f"  {t}: {n} rows sent")
+            cur.execute("select setval('gik.donors_donor_id_seq', greatest((select coalesce(max(donor_id),1) from gik.donors), 1))")
+        pg.commit()
+        print(f"\nDone: {total} rows merged into Supabase (schema gik). Run 'py gik.py cloud status' to compare counts.")
+    except Exception as e:
+        pg.rollback()
+        sys.exit(f"\nPush failed, nothing changed in the cloud: {e}")
+    finally:
+        pg.close()
+
+
+LOOKUP_COLS = ["name", "brand", "category", "raw_category", "fmv_unit", "fmv_basis", "fmv_source_url", "fmv_merchant",
+               "offer_updated", "fmv_captured_at", "fmv_status", "lookup_source", "notes", "updated_at"]
+
+
+def cloud_sync(conn, pg, args):
+    counts = cloud_pull(conn, pg)
+    print("Pulled from cloud: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+    max_offer = conn.execute("SELECT COALESCE(MAX(offer_id),0) FROM offers").fetchone()[0]
+    max_log = conn.execute("SELECT COALESCE(MAX(log_id),0) FROM lookup_log").fetchone()[0]
+    before = {r["gtin"]: tuple(r) for r in conn.execute(f"SELECT gtin,{','.join(LOOKUP_COLS)} FROM item_master")}
+    conn.close()
+    cmd_retry(args)
+    cmd_refresh(args)
+    conn = connect()
+    changed = [tuple(r) for r in conn.execute(f"SELECT gtin,{','.join(LOOKUP_COLS)} FROM item_master") if before.get(r["gtin"]) != tuple(r)]
+    new_offers = conn.execute("SELECT * FROM offers WHERE offer_id > ?", (max_offer,)).fetchall()
+    new_logs = conn.execute("SELECT * FROM lookup_log WHERE log_id > ?", (max_log,)).fetchall()
+    try:
+        with pg.cursor() as cur:
+            # only the lookup columns of changed barcodes; verified rows in the cloud are left alone
+            cols = ["gtin"] + LOOKUP_COLS
+            pg_cols, _ = cloud_columns(pg, "item_master")
+            sets = ", ".join(f"{c}=excluded.{c}" for c in LOOKUP_COLS)
+            cur.executemany(f"insert into gik.item_master ({','.join(cols)}) values ({','.join(['%s'] * len(cols))}) "
+                            f"on conflict (gtin) do update set {sets} where gik.item_master.fmv_status <> 'verified'",
+                            [tuple(_pg_value(v, pg_cols[c]) for c, v in zip(cols, r)) for r in changed])
+            o_cols = list(new_offers[0].keys()) if new_offers else []
+            n_off = _push_rows(cur, pg, "offers", o_cols, [tuple(r) for r in new_offers]) if new_offers else 0
+            l_cols = list(new_logs[0].keys()) if new_logs else []
+            n_log = _push_rows(cur, pg, "lookup_log", l_cols, [tuple(r) for r in new_logs]) if new_logs else 0
+        pg.commit()
+        print(f"\nSynced to cloud: {len(changed)} barcodes updated, {n_off} new prices, {n_log} lookup records.")
+    except Exception as e:
+        pg.rollback()
+        sys.exit(f"\nSync push failed, nothing changed in the cloud: {e}")
+    finally:
+        pg.close()
+
 
 # ---------------------------------------------------------------- cli
 
@@ -1599,6 +2060,7 @@ def main():
     dn.add_argument("--restriction"); dn.add_argument("--notes"); dn.set_defaults(fn=cmd_donation)
 
     i = sub.add_parser("intake"); i.add_argument("donation_id"); i.add_argument("--by", default=os.environ.get("USER", ""))
+    i.add_argument("--location", help="starting rack/bin code, e.g. C03Z (can be changed mid-session with @CODE)")
     i.add_argument("--mock", action="store_true", help="use mock_lookups.json instead of the live API"); i.set_defaults(fn=cmd_intake)
 
     l = sub.add_parser("lookup"); l.add_argument("gtin"); l.add_argument("--mock", action="store_true"); l.set_defaults(fn=cmd_lookup)
@@ -1616,7 +2078,7 @@ def main():
     v.add_argument("--basis", choices=["retail", "wholesale", "appraised"]); v.add_argument("--dispute", action="store_true")
     v.set_defaults(fn=cmd_verify)
 
-    e = sub.add_parser("export"); e.add_argument("what", choices=["je", "items", "master", "values"]); e.add_argument("--out", default=os.path.join(HERE, "exports"))
+    e = sub.add_parser("export"); e.add_argument("what", choices=["je", "items", "master", "values", "receipts"]); e.add_argument("--out", default=os.path.join(HERE, "exports"))
     e.set_defaults(fn=cmd_export)
 
     m = sub.add_parser("master", help="master list CSV round-trip with the Google Sheet")
@@ -1624,6 +2086,10 @@ def main():
     m.add_argument("--out", default=os.path.join(HERE, "exports")); m.add_argument("--by"); m.set_defaults(fn=cmd_master)
 
     lk = sub.add_parser("links"); lk.add_argument("gtin"); lk.set_defaults(fn=cmd_links)
+
+    lo = sub.add_parser("locations", help="warehouse rack/bin codes"); lo.add_argument("action", nargs="?", default="list", choices=["list", "add", "retire"])
+    lo.add_argument("code", nargs="?"); lo.add_argument("--rack"); lo.add_argument("--description"); lo.set_defaults(fn=cmd_locations)
+    lb = sub.add_parser("labels", help="printable sheet of location + command barcodes"); lb.add_argument("--out", default=os.path.join(HERE, "exports")); lb.set_defaults(fn=cmd_labels)
 
     fd = sub.add_parser("find", help="search the generic (no-barcode) catalog"); fd.add_argument("words", nargs="+"); fd.set_defaults(fn=cmd_find)
     g = sub.add_parser("generic", help="manage non-barcoded items"); g.add_argument("action", choices=["add", "value", "pending"])
@@ -1634,6 +2100,11 @@ def main():
 
     pu = sub.add_parser("pushed"); pu.add_argument("batch"); pu.add_argument("--ns-tran", dest="ns_tran", required=True); pu.set_defaults(fn=cmd_pushed)
     sub.add_parser("report").set_defaults(fn=cmd_report)
+    cl = sub.add_parser("cloud", help="copy this computer's gik.db into the shared Supabase database (needs supabase_db.txt)")
+    cl.add_argument("action", choices=["push", "status", "sync"])
+    cl.add_argument("--max", type=int, default=0, help="sync: look up at most this many barcodes per run")
+    cl.add_argument("--gap", type=float, default=7.0); cl.add_argument("--all", action="store_true"); cl.add_argument("--mock", action="store_true")
+    cl.set_defaults(fn=cmd_cloud)
 
     args = p.parse_args()
     args.fn(args)

@@ -71,10 +71,11 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
     <div id="camwrap" class="hidden"><video id="cam" style="width:100%;max-height:260px;border-radius:8px;background:#000" playsinline muted></video></div>
     <div id="hits"></div>
     <div id="last" class="lastscan hidden"></div>
+    <p class="small" id="saveState" style="color:var(--bad)"></p>
   </div>
   <div class="card">
-    <div class="row" style="align-items:center"><h2 style="flex:1">This donation so far</h2><div class="big" id="unitCount">0</div><div class="muted small" style="flex:0">units</div></div>
-    <div style="overflow:auto"><table id="recent"><thead><tr><th>Time</th><th>Item</th><th>Code</th><th>Qty</th><th>Loc</th><th>By</th><th></th></tr></thead><tbody></tbody></table></div>
+    <div class="row" style="align-items:center"><h2 style="flex:1">Scanned this session <span class="muted small" id="queueInfo"></span></h2><div class="big" id="unitCount">0</div><div class="muted small" style="flex:0">units</div></div>
+    <div style="overflow:auto"><table id="recent"><thead><tr><th>Time</th><th>Item</th><th>UPC / code</th><th>Qty</th><th>Loc</th><th>Price</th><th></th></tr></thead><tbody></tbody></table></div>
   </div>
 </section>
 
@@ -254,26 +255,61 @@ function showHits(text) {
   }));
 }
 
-async function recordScan(code) {
-  const donation = $("#donation").value || "GENERAL";
+// ---------- fast scanning: record instantly, save in the background in batches ----------
+const QKEY = "gik.queue";
+let queue = (() => { try { return JSON.parse(localStorage.getItem(QKEY) || "[]"); } catch (e) { return []; } })();
+let sessionRows = [], flushing = false, flushTimer = null, savedCount = 0;
+const saveQueue = () => { try { localStorage.setItem(QKEY, JSON.stringify(queue)); } catch (e) {} };
+let localId = Date.now();
+
+function recordScan(code) {
   const qty = pendingQty || Math.max(1, +$("#qty").value || 1); pendingQty = null;
-  toast(`Saving ${code}…`);
-  let { data: item, error: itemErr } = await sb.from("item_master").select("gtin, name, brand, fmv_unit, fmv_status, category").eq("gtin", code).maybeSingle();
-  if (itemErr) return fail(itemErr);
-  if (!item) {
-    const guess = await quickLookup(code);
-    const ins = await sb.from("item_master").insert({ gtin: code, name: guess?.name || null, brand: guess?.brand || null, raw_category: guess?.category || null, lookup_source: guess ? "openfacts-web" : null, fmv_status: "unverified" }).select().single();
-    if (ins.error) return fail(ins.error); item = ins.data;
-  }
-  const rec = await sb.from("receipts").insert({ donation_id: donation, gtin: code, qty, location: $("#location").value || null, scanned_by: user.email }).select().single();
-  if (rec.error) return fail(rec.error);
-  state.lastReceipt = rec.data;
-  const price = item.fmv_unit != null ? `$${(+item.fmv_unit).toFixed(2)} <span class="pill ${item.fmv_status === "verified" ? "ok" : "warn"}">${item.fmv_status}</span>` : `<span class="pill warn">price pending</span>`;
+  const row = { lid: ++localId, donation_id: $("#donation").value || "GENERAL", gtin: code, qty, location: $("#location").value || null, scanned_by: user.email, scanned_at: new Date().toISOString() };
+  queue.push(row); saveQueue();
+  const known = state.generics.find((g) => g.code === code);
+  sessionRows.unshift({ ...row, name: known ? known.name : "", status: "saving" });
+  state.lastReceipt = row;
   $("#last").classList.remove("hidden");
-  $("#last").innerHTML = `<div class="big">${qty}</div><div><b>${esc(item.name || "New barcode — name will be looked up tonight")}</b><div class="small muted">${esc(item.brand || "")} ${code} · ${price}</div></div>`;
-  toast(`Saved: ${item.name || code} × ${qty}`, "ok");
-  if (navigator.vibrate) navigator.vibrate(40);
-  loadRecent();
+  $("#last").innerHTML = `<div class="big">${qty}</div><div><b>${esc(known ? known.name : code)}</b><div class="small muted">scanned · name and price fill in automatically</div></div>`;
+  if (navigator.vibrate) navigator.vibrate(30);
+  renderSession();
+  clearTimeout(flushTimer); flushTimer = setTimeout(flush, 400);
+}
+
+async function flush() {
+  if (flushing || !queue.length) return;
+  flushing = true;
+  const batch = queue.slice(0, 200);
+  try {
+    const gtins = [...new Set(batch.map((r) => r.gtin))];
+    const im = await sb.from("item_master").upsert(gtins.map((g) => ({ gtin: g, fmv_status: "unverified" })), { onConflict: "gtin", ignoreDuplicates: true });
+    if (im.error) throw im.error;
+    const rec = await sb.from("receipts").insert(batch.map(({ lid, ...r }) => r)).select("receipt_id, gtin, scanned_at");
+    if (rec.error) throw rec.error;
+    const ids = new Set(batch.map((r) => r.lid));
+    queue = queue.filter((r) => !ids.has(r.lid)); saveQueue();
+    rec.data.forEach((d, i) => { const s = sessionRows.find((x) => x.lid === batch[i].lid); if (s) { s.status = "saved"; s.receipt_id = d.receipt_id; } });
+    savedCount += batch.length;
+    const names = await sb.from("item_master").select("gtin, name, fmv_unit").in("gtin", gtins);
+    if (!names.error) for (const n of names.data) sessionRows.filter((s) => s.gtin === n.gtin).forEach((s) => { s.name = n.name || s.name; s.fmv = n.fmv_unit; });
+    $("#saveState").textContent = "";
+  } catch (e) {
+    console.error(e);
+    $("#saveState").textContent = `${queue.length} scan(s) waiting to save, retrying… (${e.message || e})`;
+    setTimeout(flush, 5000);
+  } finally {
+    flushing = false; renderSession();
+    if (queue.length) setTimeout(flush, 300);
+  }
+}
+setInterval(flush, 10000);
+window.addEventListener("online", flush);
+
+function renderSession() {
+  const waiting = queue.length;
+  $("#unitCount").textContent = sessionRows.reduce((a, r) => a + r.qty, 0).toLocaleString();
+  $("#queueInfo").textContent = waiting ? `${waiting} saving…` : (sessionRows.length ? "all saved" : "");
+  $("#recent tbody").innerHTML = sessionRows.slice(0, 60).map((r) => `<tr><td class="muted small">${new Date(r.scanned_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}</td><td>${esc(r.name || "")}</td><td class="small">${r.gtin}</td><td>${r.qty}</td><td>${esc(r.location || "")}</td><td class="small">${r.fmv != null ? "$" + (+r.fmv).toFixed(2) : ""}</td><td>${r.status === "saved" ? '<span class="pill ok">saved</span>' : '<span class="pill warn">saving</span>'}</td></tr>`).join("");
 }
 
 async function quickLookup(gtin) {
@@ -318,21 +354,14 @@ function askPhoto(code, name) {
 }
 
 async function undoLast() {
-  const r = state.lastReceipt; if (!r) return toast("Nothing to undo");
-  const del = await sb.from("receipts").delete().eq("receipt_id", r.receipt_id);
-  if (del.error) return fail(del.error);
-  state.lastReceipt = null; toast(`Removed last scan (${r.gtin} × ${r.qty})`, "ok"); $("#last").classList.add("hidden"); loadRecent();
+  const r = sessionRows[0]; if (!r) return toast("Nothing to undo");
+  const inQueue = queue.findIndex((q) => q.lid === r.lid);
+  if (inQueue >= 0) { queue.splice(inQueue, 1); saveQueue(); }
+  else if (r.receipt_id) { const del = await sb.from("receipts").delete().eq("receipt_id", r.receipt_id); if (del.error) return fail(del.error); }
+  sessionRows.shift(); toast(`Removed last scan (${r.gtin} × ${r.qty})`, "ok"); $("#last").classList.add("hidden"); renderSession();
 }
 
-async function loadRecent() {
-  const donation = $("#donation").value; const tb = $("#recent tbody");
-  if (!donation) { tb.innerHTML = ""; $("#unitCount").textContent = "0"; return; }
-  const { data, error } = await sb.from("receipts").select("receipt_id, gtin, qty, location, scanned_at, scanned_by, push_status, item_master(name)").eq("donation_id", donation).order("scanned_at", { ascending: false }).limit(300);
-  if (error) return fail(error);
-  $("#unitCount").textContent = data.reduce((a, r) => a + r.qty, 0).toLocaleString();
-  tb.innerHTML = data.slice(0, 60).map((r) => `<tr><td class="muted small">${new Date(r.scanned_at).toLocaleString([], { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</td><td>${esc(r.item_master?.name || "(looking up)")}</td><td class="small">${r.gtin}</td><td>${r.qty}</td><td>${esc(r.location || "")}</td><td class="small muted">${esc((r.scanned_by || "").split("@")[0])}</td><td>${r.push_status === "staged" ? `<button class="btn sec small" style="padding:2px 8px" data-del="${r.receipt_id}">✕</button>` : ""}</td></tr>`).join("");
-  tb.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => { const d = await sb.from("receipts").delete().eq("receipt_id", b.dataset.del); if (d.error) return fail(d.error); loadRecent(); }));
-}
+function loadRecent() { renderSession(); flush(); }
 
 // ---------- phone camera (Chrome / Android, Safari 17+) ----------
 let camStream = null, camTimer = null;

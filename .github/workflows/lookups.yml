@@ -25,6 +25,12 @@ jobs:
           UPCDATABASE_KEY: ${{ secrets.UPCDATABASE_KEY }}
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          KROGER_CLIENT_ID: ${{ secrets.KROGER_CLIENT_ID }}
+          KROGER_CLIENT_SECRET: ${{ secrets.KROGER_CLIENT_SECRET }}
+          KROGER_LOCATION_ID: ${{ secrets.KROGER_LOCATION_ID }}
+          BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+          WALMART_CONSUMER_ID: ${{ secrets.WALMART_CONSUMER_ID }}
+          WALMART_PRIVATE_KEY: ${{ secrets.WALMART_PRIVATE_KEY }}
         run: |
           python gik.py init
           python gik.py cloud sync --max 250

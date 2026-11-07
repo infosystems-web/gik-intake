@@ -785,8 +785,58 @@ def maybe_openprices(conn, gtin14: str, now: str):
     return {"price": pick["price"], "url": pick["link"], "merchant": pick["merchant"]}
 
 
+# Extra price sources live in extra_sources.py next to this file, so a new source is one small file, not a new gik.py.
+# Each entry: name -> fetch(gtin14, http_get) returning (http_status, raw_body, offers, info) where offers are dicts
+# {merchant, price, link, condition, title, updated_t} and info may carry {"name", "brand", "note"}.
+try:
+    import extra_sources
+except Exception as _e:  # missing or broken file must never stop scanning or lookups
+    extra_sources = None
+
+
+def maybe_extra_sources(conn, gtin14: str, now: str):
+    if gtin14.startswith("G-") or extra_sources is None:
+        return None
+    for name, fetch in getattr(extra_sources, "PRICE_SOURCES", {}).items():
+        row = conn.execute("SELECT fmv_unit, fmv_status FROM item_master WHERE gtin=?", (gtin14,)).fetchone()
+        if row and (row["fmv_unit"] is not None or row["fmv_status"] == "verified"):
+            return None
+        if conn.execute("SELECT 1 FROM lookup_log WHERE gtin=? AND source=? AND requested_at > datetime('now','-7 days')",
+                        (gtin14, name)).fetchone():
+            continue
+        try:
+            st, body, offers, info = fetch(gtin14, http_get)
+        except Exception as e:
+            st, body, offers, info = 0, json.dumps({"error": str(e)}), [], {}
+        if st is None:  # source not configured (no keys): skip silently, nothing logged
+            continue
+        conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)", (gtin14, name, st, (body or "")[:20000]))
+        if info.get("name") or info.get("brand"):
+            conn.execute("UPDATE item_master SET name=COALESCE(name, ?), brand=COALESCE(brand, ?) WHERE gtin=?",
+                         (info.get("name"), info.get("brand"), gtin14))
+        record_offers(conn, gtin14, offers, name)
+        good = sorted((o for o in offers if o.get("price")), key=lambda o: o["price"])
+        if not good:
+            continue
+        pick = good[len(good) // 2]
+        note = info.get("note") or f"{name} price; confirm at a store"
+        conn.execute("""INSERT INTO item_master (gtin, name, brand, fmv_unit, fmv_source_url, fmv_merchant, fmv_captured_at, fmv_status, lookup_source, notes, updated_at)
+                        VALUES (?,?,?,?,?,?,?,'unverified',?,?,?)
+                        ON CONFLICT(gtin) DO UPDATE SET name=COALESCE(item_master.name, excluded.name), brand=COALESCE(item_master.brand, excluded.brand),
+                          fmv_unit=excluded.fmv_unit, fmv_source_url=excluded.fmv_source_url, fmv_merchant=excluded.fmv_merchant,
+                          fmv_captured_at=excluded.fmv_captured_at, fmv_status='unverified', lookup_source=excluded.lookup_source,
+                          notes=excluded.notes, updated_at=excluded.updated_at""",
+                     (gtin14, info.get("name") or pick.get("title") or None, info.get("brand"), pick["price"], pick.get("link"),
+                      pick.get("merchant"), now, name, note, now))
+        return {"price": pick["price"], "url": pick.get("link"), "merchant": pick.get("merchant")}
+    return None
+
+
 def maybe_ebay(conn, gtin14: str, now: str):
     """If the item still has no price and eBay keys are configured, price it from new fixed-price eBay listings."""
+    ex = maybe_extra_sources(conn, gtin14, now)
+    if ex:
+        return ex
     op = maybe_openprices(conn, gtin14, now)
     if op:
         return op

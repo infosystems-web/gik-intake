@@ -101,7 +101,105 @@ def fetch_kroger(gtin14, http_get):
     return st, body, offers, info
 
 
+# ---------------------------------------------------------------- Walmart Affiliate API (free; walmart.io app + RSA key)
+# Secrets: WALMART_CONSUMER_ID, WALMART_PRIVATE_KEY (PEM text), optional WALMART_KEY_VERSION (default 1).
+# Each request is signed: base64(RSA-SHA256("<consumer id>\n<timestamp ms>\n<key version>\n")).
+
+WALMART_API = "https://developer.api.walmart.com/api-proxy/service/affil/product/v2"
+
+
+def walmart_keys():
+    cid, pem = os.environ.get("WALMART_CONSUMER_ID"), os.environ.get("WALMART_PRIVATE_KEY")
+    if cid and pem:
+        return cid.strip(), pem.strip().replace("\\n", "\n")
+    lines = _keyfile("walmart_consumer_id.txt", 1)
+    path = os.path.join(HERE, "WM_IO_private_key.pem")
+    if lines and os.path.exists(path):
+        return lines[0], open(path, encoding="utf-8").read()
+    return None, None
+
+
+def _rsa_sign(pem: str, message: bytes) -> str:
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        key = serialization.load_pem_private_key(pem.encode(), password=None)
+        return base64.b64encode(key.sign(message, padding.PKCS1v15(), hashes.SHA256())).decode()
+    except ImportError:  # GitHub runners and most PCs with Git have openssl
+        import subprocess
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as f:
+            f.write(pem)
+            kp = f.name
+        try:
+            sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", kp], input=message, capture_output=True, check=True).stdout
+        finally:
+            os.unlink(kp)
+        return base64.b64encode(sig).decode()
+
+
+def _walmart_headers():
+    cid, pem = walmart_keys()
+    ver = os.environ.get("WALMART_KEY_VERSION", "1")
+    ts = str(int(time.time() * 1000))
+    sig = _rsa_sign(pem, f"{cid}\n{ts}\n{ver}\n".encode())
+    return {"WM_CONSUMER.ID": cid, "WM_CONSUMER.INTIMESTAMP": ts, "WM_SEC.KEY_VERSION": ver, "WM_SEC.AUTH_SIGNATURE": sig}
+
+
+def fetch_walmart(gtin14, http_get):
+    if not walmart_keys()[0]:
+        return None, "", [], {}
+    s = gtin14.lstrip("0")
+    upc = s.zfill(12) if len(s) <= 12 else s
+    st, body = http_get(f"{WALMART_API}/items?upc={upc}", _walmart_headers())
+    if st != 200:
+        return st, body, [], {}
+    items = (json.loads(body) or {}).get("items") or []
+    offers, info = [], {}
+    for it in items[:1]:
+        info = {"name": it.get("name"), "brand": it.get("brandName")}
+        link = f"https://www.walmart.com/ip/{it['itemId']}" if it.get("itemId") else (it.get("productUrl") or "")
+        price = it.get("salePrice") or it.get("msrp")
+        seller = (it.get("sellerInfo") or "Walmart.com")
+        if price:
+            offers.append({"merchant": "Walmart" if "walmart" in str(seller).lower() else f"Walmart marketplace ({seller})",
+                           "price": float(price), "link": link, "condition": "New", "title": it.get("name") or "",
+                           "updated_t": int(time.time())})
+    if offers:
+        info["note"] = "Walmart.com current price; confirm on the product page"
+    return st, body, offers, info
+
+
+# ---------------------------------------------------------------- Best Buy Products API (free with approval)
+# Secret: BESTBUY_API_KEY. Terms: do not keep Best Buy prices longer than 72 hours as a live price; we store
+# the dated price as evidence for a reviewer, with the product page link.
+
+def fetch_bestbuy(gtin14, http_get):
+    key = os.environ.get("BESTBUY_API_KEY") or (_keyfile("bestbuy_key.txt", 1) or [None])[0]
+    if not key:
+        return None, "", [], {}
+    s = gtin14.lstrip("0")
+    upc = s.zfill(12) if len(s) <= 12 else s
+    st, body = http_get(f"https://api.bestbuy.com/v1/products(upc={upc})?apiKey={urllib.parse.quote(key)}"
+                        "&format=json&show=sku,name,manufacturer,regularPrice,salePrice,url,condition")
+    if st != 200:
+        return st, body.replace(key, "***"), [], {}
+    prods = (json.loads(body) or {}).get("products") or []
+    offers, info = [], {}
+    for p in prods[:1]:
+        info = {"name": p.get("name"), "brand": p.get("manufacturer")}
+        price = p.get("regularPrice") or p.get("salePrice")
+        if price and (p.get("condition") or "New").lower() == "new":
+            offers.append({"merchant": "Best Buy", "price": float(price), "link": p.get("url") or "", "condition": "New",
+                           "title": p.get("name") or "", "updated_t": int(time.time())})
+    if offers:
+        info["note"] = "Best Buy regular price (dated evidence; confirm on the product page)"
+    return st, body, offers, info
+
+
 # Order = priority. Add new sources here (Walmart, Best Buy, Amazon Business) as they are approved.
 PRICE_SOURCES = {
     "kroger": fetch_kroger,
+    "walmart": fetch_walmart,
+    "bestbuy": fetch_bestbuy,
 }

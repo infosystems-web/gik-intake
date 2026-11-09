@@ -202,3 +202,21 @@ def test_refresh_survives_trimmed_raw_text(conn):
     class A:
         mock = False
     gik.cmd_refresh(A())
+
+
+def test_more_places_counts_ebay_once_and_stops_at_three(conn, monkeypatch):
+    conn.execute("INSERT INTO item_master (gtin, name, fmv_unit) VALUES ('00036000291452', 'Kleenex', 2.49)")
+    conn.commit()
+    gik.record_offers(conn, "00036000291452", [
+        {"merchant": "eBay (a)", "price": 3, "link": "https://e/1", "condition": "New"},
+        {"merchant": "eBay (b)", "price": 3.1, "link": "https://e/2", "condition": "New"}], "ebay")
+    calls = []
+    monkeypatch.setattr(es, "PRICE_SOURCES", {
+        "kroger": lambda g, h: (calls.append("kroger") or 200, "{}", [{"merchant": "Kroger", "price": 2.49, "link": "https://k", "condition": "New"}], {}),
+        "walmart": lambda g, h: (calls.append("walmart") or 200, "{}", [{"merchant": "Walmart", "price": 2.29, "link": "https://w", "condition": "New"}], {}),
+        "bestbuy": lambda g, h: (calls.append("bestbuy") or 200, "{}", [], {})})
+    monkeypatch.setattr(gik, "fetch_openprices", lambda g: (calls.append("openprices") or 200, "{}", []))
+    cs.evidence_fill(conn, gik, 10)
+    assert calls == ["kroger", "walmart"]          # eBay sellers = 1 place; Kroger + Walmart make 3; then it stops
+    cs.evidence_fill(conn, gik, 10)
+    assert calls == ["kroger", "walmart"]          # three places reached: nothing asked again

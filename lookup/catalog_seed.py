@@ -8,7 +8,12 @@ Search terms live in catalog_terms.txt, one "Category | search term" per line (C
 Each `gik.py cloud sync --seed N` run seeds up to N terms that were not seeded in the last 30 days. Progress is
 kept in lookup_log as gtin='SEED:kroger:<term>', which the sync pulls from the cloud, so runs resume on their own.
 
-Seeded rows: fmv_status 'unverified', lookup_source 'kroger-seed', notes start with "Catalog seed". A barcode that
+Source 2 (live): Google Books search (GOOGLE_BOOKS_KEY) for children's, classroom and teacher books, queries in
+catalog_books.txt; ISBN-13 becomes the GTIN, publisher list price is the price when Google has one.
+Price fill: catalog items still without a price are sent through the normal price chain (Kroger, Walmart, Best Buy,
+Open Prices, then eBay median of new listings), up to --fill N per run, so the free daily limits get used.
+
+Seeded rows: fmv_status 'unverified', lookup_source 'kroger-seed' or 'gbooks-seed', notes start with "Catalog seed". A barcode that
 already has a price, or is verified, is never overwritten; its Kroger price is just saved as one more offer.
 """
 import json
@@ -20,6 +25,9 @@ from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TERMS_FILE = os.path.join(HERE, "catalog_terms.txt")
+BOOKS_FILE = os.path.join(HERE, "catalog_books.txt")
+BOOK_PAGES = int(os.environ.get("GIK_SEED_BOOK_PAGES", "5"))  # Google Books returns up to 40 per page
+BOOKS_PER_RUN = int(os.environ.get("GIK_SEED_BOOKS", "15"))   # 15 queries x 5 pages = 75 calls/run, ~600/day of 1,000
 PAGES = int(os.environ.get("GIK_SEED_PAGES", "5"))   # Kroger returns up to 50 products per page (start max 250)
 REDO_DAYS = 30
 # Kroger store departments that are groceries; skipped unless the term itself is a food term.
@@ -137,8 +145,21 @@ def seed_term(conn, gik, es, category, term, now, loc, token):
     return status, seen, new, more
 
 
+FILL_PER_RUN = int(os.environ.get("GIK_FILL", "400"))   # eBay allows 5,000/day; 8 runs x 400 = 3,200
+
+
 def run(conn, budget, gik):
-    """Seed up to `budget` search terms. Never raises: a seed problem must not stop the lookup sync."""
+    """Books, then Kroger terms, then price fill. Never raises: a seed problem must not stop the lookup sync."""
+    for step in (lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
+                 lambda: fill_prices(conn, gik, FILL_PER_RUN)):
+        try:
+            step()
+        except Exception as e:
+            print(f"Catalog step skipped: {e}")
+
+
+def seed_kroger(conn, budget, gik):
+    """Seed up to `budget` Kroger search terms."""
     try:
         import extra_sources as es
     except Exception as e:
@@ -175,3 +196,92 @@ def run(conn, budget, gik):
         print(f"  seed '{term}' ({category}): {seen} products, {new} new catalog items")
     print(f"Catalog seed: {len(due)} terms, {tot_seen} products seen, {tot_new} new catalog items "
           f"({len(_due_terms(conn, terms))} terms still to do)")
+
+
+# ---------------------------------------------------------------- books (Google Books search)
+
+def load_book_queries(path=None):
+    path = path or BOOKS_FILE
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+
+
+def seed_books(conn, gik, budget=None):
+    budget = BOOKS_PER_RUN if budget is None else budget
+    key = gik.google_books_key()
+    if not key or budget <= 0:
+        return
+    done = {r[0] for r in conn.execute(
+        "SELECT gtin FROM lookup_log WHERE source='gbooks-seed' AND requested_at > datetime('now', ?)", (f"-{REDO_DAYS} days",))}
+    due = [q for q in load_book_queries() if f"SEED:gbooks:{q.lower()}" not in done][:budget]
+    now = datetime.now().isoformat(timespec="seconds")
+    tot = 0
+    for q in due:
+        seen = new = 0
+        st = 0
+        for page in range(BOOK_PAGES):
+            url = ("https://www.googleapis.com/books/v1/volumes?" + urllib.parse.urlencode(
+                {"q": q, "printType": "books", "langRestrict": "en", "country": "US", "maxResults": 40,
+                 "startIndex": page * 40, "key": key}))
+            st, body = gik.http_get(url)
+            if st != 200:
+                break
+            items = (json.loads(body) or {}).get("items") or []
+            for v in items:
+                ids = {i.get("type"): i.get("identifier") for i in (v.get("volumeInfo") or {}).get("industryIdentifiers") or []}
+                isbn = re.sub(r"\D", "", ids.get("ISBN_13") or "")
+                if len(isbn) != 13 or not isbn.startswith(("978", "979")):
+                    continue
+                gtin = "0" + isbn
+                if not gik.normalize_gtin(gtin):
+                    continue
+                seen += 1
+                if conn.execute("SELECT 1 FROM item_master WHERE gtin=?", (gtin,)).fetchone():
+                    continue
+                b = gik.parse_googlebooks({"items": [v]})
+                if not b or not b.get("title"):
+                    continue
+                gik.upsert_book(conn, gtin, b, now, "gbooks-seed")
+                note = (f"Catalog seed (books '{q}'): {b.get('merchant')}; not scanned yet; confirm"
+                        if b.get("price") else f"Catalog seed (books '{q}'): title from Google Books, no price yet")
+                conn.execute("UPDATE item_master SET notes=? WHERE gtin=?", (note, gtin))
+                gik.ensure_links(conn, gtin)
+                new += 1
+            if len(items) < 40:
+                break
+            time.sleep(0.3)
+        conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)",
+                     (f"SEED:gbooks:{q.lower()}", "gbooks-seed", st, json.dumps({"query": q, "books": seen, "new_items": new})))
+        conn.commit()
+        tot += new
+        print(f"  books '{q}': {seen} books, {new} new catalog items")
+    if due:
+        print(f"Book seed: {len(due)} queries, {tot} new catalog books")
+
+
+# ---------------------------------------------------------------- price fill for catalog items without a price
+
+def fill_prices(conn, gik, budget):
+    """Run the normal price chain (extra sources, Open Prices, eBay) on seeded items that still have no price.
+    Each source keeps its own 7-day re-ask rule, so the same item is not hammered."""
+    if budget <= 0:
+        return
+    rows = conn.execute("""SELECT gtin FROM item_master
+                           WHERE fmv_unit IS NULL AND fmv_status <> 'verified' AND lookup_source IN ('kroger-seed','gbooks-seed')
+                             AND gtin NOT IN (SELECT gtin FROM lookup_log WHERE source='ebay' AND requested_at > datetime('now','-7 days'))
+                           ORDER BY updated_at LIMIT ?""", (budget,)).fetchall()
+    now = datetime.now().isoformat(timespec="seconds")
+    priced = 0
+    for r in rows:
+        try:
+            if gik.maybe_ebay(conn, r["gtin"], now):
+                priced += 1
+                conn.execute("UPDATE item_master SET notes='Catalog seed: ' || COALESCE(notes,'') WHERE gtin=? AND COALESCE(notes,'') NOT LIKE 'Catalog seed%'",
+                             (r["gtin"],))
+        except Exception as e:
+            print(f"  fill {r['gtin']}: {e}")
+        conn.commit()
+    if rows:
+        print(f"Price fill: tried {len(rows)} unpriced catalog items, priced {priced}")

@@ -1,0 +1,52 @@
+# Google Books search queries for the catalog seed (one per line; Google Books syntax: subject:, inpublisher:, intitle:).
+# Each query pulls up to 200 English print books; ISBN-13 becomes the barcode. Add lines any time.
+subject:"juvenile fiction"
+subject:"juvenile nonfiction"
+subject:"young adult fiction"
+subject:"young adult nonfiction"
+subject:"picture books"
+subject:"board books"
+subject:"stories in rhyme"
+subject:"readers (primary)"
+subject:"early readers"
+subject:"chapter books"
+subject:"graphic novels" juvenile
+subject:"juvenile fiction" animals
+subject:"juvenile fiction" family
+subject:"juvenile fiction" friendship
+subject:"juvenile fiction" school
+subject:"juvenile nonfiction" science
+subject:"juvenile nonfiction" history
+subject:"juvenile nonfiction" biography
+subject:"juvenile nonfiction" mathematics
+subject:"juvenile nonfiction" language arts
+subject:"juvenile nonfiction" social topics
+subject:"juvenile nonfiction" activity books
+subject:"juvenile fiction" spanish
+subject:"children's poetry"
+subject:"education" teaching methods
+subject:"education" classroom management
+subject:"education" elementary
+subject:"education" special education
+subject:"study aids" workbook
+phonics workbook
+math workbook grade
+reading comprehension workbook
+handwriting practice workbook
+children's dictionary
+children's atlas
+inpublisher:Scholastic
+inpublisher:"Penguin Young Readers"
+inpublisher:"Random House Books for Young Readers"
+inpublisher:HarperCollins juvenile
+inpublisher:"Little, Brown Books for Young Readers"
+inpublisher:"Simon & Schuster Books for Young Readers"
+inpublisher:"National Geographic Kids"
+inpublisher:"DK Children"
+inpublisher:"Carson Dellosa"
+inpublisher:"Evan-Moor"
+inpublisher:"Teacher Created Resources"
+inpublisher:"Spectrum"
+inpublisher:"Highlights"
+inpublisher:"Usborne"
+inpublisher:Sourcebooks juvenile

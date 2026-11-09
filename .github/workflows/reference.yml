@@ -1,0 +1,32 @@
+# Weekly bulk load of known barcodes into gik.products (Open Beauty/Products/Food Facts, Open Library),
+# so scans are named before anyone scans them. Sundays 06:41 UTC and on demand (Actions > GIK reference catalog).
+name: GIK reference catalog
+on:
+  schedule:
+    - cron: "41 6 * * 0"
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Sources: all, or any of openbeautyfacts openproductsfacts openfoodfacts openlibrary"
+        default: "all"
+concurrency: gik-reference
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install psycopg2-binary pytest
+      - name: Safety tests
+        working-directory: lookup
+        run: python -m pytest -q tests
+      - name: Load the reference catalog
+        working-directory: lookup
+        env:
+          GIK_DB: ${{ runner.temp }}/gik.db
+          GIK_DB_PASSWORD: ${{ secrets.GIK_DB_PASSWORD }}
+          SOURCES: ${{ github.event.inputs.sources || 'all' }}
+        run: python bulk_products.py $SOURCES

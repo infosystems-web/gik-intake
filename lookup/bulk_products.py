@@ -11,7 +11,8 @@ then gives scanned barcodes that still have no name the reference name (gik.appl
 
   python bulk_products.py all            weekly job: every source
   python bulk_products.py openbeautyfacts openlibrary
-  python bulk_products.py apply          only fill names of scanned items from the reference table
+  python bulk_products.py apply          after each lookup run: names, prefix brands, trim old raw lookup text
+  python bulk_products.py prefixes       rebuild the barcode prefix -> brand map (also done after every import)
   python bulk_products.py <source> --dry-run --limit 5000   parse and count, write nothing
 """
 import csv
@@ -262,11 +263,23 @@ def run_source(pg, source, dry_run=False, limit=None):
 
 
 def apply_names(pg):
+    """After every run: reference names, brand-from-barcode-prefix, trim old raw lookup text (gik.maintenance())."""
     with pg.cursor() as cur:
-        cur.execute("select gik.apply_reference_names()")
+        cur.execute("select gik.maintenance()")
+        r = cur.fetchone()[0]
+    pg.commit()
+    r = r if isinstance(r, dict) else json.loads(r)
+    print(f"Named {r.get('named')} scanned barcodes from the reference catalog, branded {r.get('branded')} from barcode "
+          f"prefixes, trimmed {r.get('trimmed')} old lookup records")
+    return r
+
+
+def rebuild_prefixes(pg):
+    with pg.cursor() as cur:
+        cur.execute("select gik.rebuild_brand_prefixes()")
         n = cur.fetchone()[0]
     pg.commit()
-    print(f"Named {n} scanned barcodes from the reference catalog")
+    print(f"Barcode prefix map: {n:,} prefixes with a clear brand")
     return n
 
 
@@ -283,6 +296,10 @@ def main(argv):
     if names == ["apply"]:
         apply_names(pg)
         return 0
+    if names == ["prefixes"]:
+        rebuild_prefixes(pg)
+        apply_names(pg)
+        return 0
     sources = list(CSV_SOURCES) + ["openlibrary"] if names == ["all"] else names
     failed = []
     for s in sources:
@@ -296,6 +313,11 @@ def main(argv):
             print(f"!! {s} failed: {e}")
             failed.append(s)
     if pg is not None:
+        try:
+            rebuild_prefixes(pg)
+        except Exception as e:
+            print(f"!! prefix map failed: {e}")
+            failed.append("prefixes")
         apply_names(pg)
     if failed:
         print(f"Failed sources: {', '.join(failed)}")

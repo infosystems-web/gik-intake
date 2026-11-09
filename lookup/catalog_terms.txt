@@ -1,0 +1,221 @@
+# Catalog seed search terms: "Category | search term". Category must match gl_map exactly:
+# School supplies, Books & media, Technology, Furniture & equipment, Apparel & hygiene,
+# Household & lighting, Health & personal care, Food & beverage, Uncategorized.
+# Add lines any time; the next lookup run picks them up. Brands that show up 3+ times are added automatically.
+
+# ---- School & office supplies
+School supplies | crayons
+School supplies | colored pencils
+School supplies | washable markers
+School supplies | dry erase markers
+School supplies | highlighters
+School supplies | permanent markers
+School supplies | pencils
+School supplies | mechanical pencils
+School supplies | pencil sharpener
+School supplies | erasers
+School supplies | ballpoint pens
+School supplies | gel pens
+School supplies | glue sticks
+School supplies | school glue
+School supplies | scissors
+School supplies | rulers
+School supplies | protractor
+School supplies | composition notebook
+School supplies | spiral notebook
+School supplies | loose leaf paper
+School supplies | graph paper
+School supplies | index cards
+School supplies | sticky notes
+School supplies | pocket folders
+School supplies | binders
+School supplies | sheet protectors
+School supplies | dividers
+School supplies | pencil case
+School supplies | pencil pouch
+School supplies | backpack
+School supplies | lunch box
+School supplies | calculator
+School supplies | construction paper
+School supplies | printer paper
+School supplies | cardstock
+School supplies | poster board
+School supplies | tape
+School supplies | masking tape
+School supplies | stapler
+School supplies | staples
+School supplies | paper clips
+School supplies | binder clips
+School supplies | push pins
+School supplies | rubber bands
+School supplies | envelopes
+School supplies | labels
+School supplies | correction tape
+School supplies | dry erase board
+School supplies | whiteboard eraser
+School supplies | file folders
+School supplies | storage box
+School supplies | desk organizer
+School supplies | planner
+School supplies | sketchbook
+School supplies | watercolor paint
+School supplies | tempera paint
+School supplies | paint brushes
+School supplies | finger paint
+School supplies | play doh
+School supplies | modeling clay
+School supplies | chalk
+School supplies | sidewalk chalk
+School supplies | stickers
+School supplies | pipe cleaners
+School supplies | pom poms
+School supplies | googly eyes
+School supplies | craft sticks
+School supplies | yarn
+School supplies | felt
+School supplies | glitter
+School supplies | foam sheets
+School supplies | stencils
+School supplies | coloring book
+School supplies | activity book
+School supplies | puzzle
+School supplies | board game
+School supplies | card game
+School supplies | building blocks
+School supplies | flash cards
+School supplies | jump rope
+School supplies | playground ball
+School supplies | kids toys
+
+# ---- Books & classroom
+Books & media | childrens books
+Books & media | picture book
+Books & media | board book
+Books & media | chapter book
+Books & media | workbook
+Books & media | dictionary
+Books & media | sticker book
+Books & media | early reader
+
+# ---- Technology
+Technology | headphones
+Technology | earbuds
+Technology | usb flash drive
+Technology | batteries aa
+Technology | batteries aaa
+Technology | phone charger
+Technology | usb cable
+Technology | computer mouse
+Technology | keyboard
+
+# ---- Hygiene & personal care
+Apparel & hygiene | bar soap
+Apparel & hygiene | body wash
+Apparel & hygiene | hand soap
+Apparel & hygiene | shampoo
+Apparel & hygiene | conditioner
+Apparel & hygiene | 2 in 1 shampoo
+Apparel & hygiene | toothpaste
+Apparel & hygiene | toothbrush
+Apparel & hygiene | kids toothbrush
+Apparel & hygiene | dental floss
+Apparel & hygiene | mouthwash
+Apparel & hygiene | deodorant
+Apparel & hygiene | lotion
+Apparel & hygiene | lip balm
+Apparel & hygiene | hair brush
+Apparel & hygiene | comb
+Apparel & hygiene | hair ties
+Apparel & hygiene | razors
+Apparel & hygiene | shaving cream
+Apparel & hygiene | feminine pads
+Apparel & hygiene | tampons
+Apparel & hygiene | diapers
+Apparel & hygiene | baby wipes
+Apparel & hygiene | socks
+Apparel & hygiene | kids socks
+Apparel & hygiene | underwear
+Apparel & hygiene | gloves
+Apparel & hygiene | winter hat
+Apparel & hygiene | scarf
+Apparel & hygiene | t-shirt
+Health & personal care | hand sanitizer
+Health & personal care | disinfecting wipes
+Health & personal care | facial tissue
+Health & personal care | adhesive bandages
+Health & personal care | first aid kit
+Health & personal care | sunscreen
+Health & personal care | face masks
+Health & personal care | cotton balls
+Health & personal care | cotton swabs
+Health & personal care | thermometer
+
+# ---- Cleaning & household
+Household & lighting | paper towels
+Household & lighting | toilet paper
+Household & lighting | trash bags
+Household & lighting | all purpose cleaner
+Household & lighting | glass cleaner
+Household & lighting | dish soap
+Household & lighting | dishwasher detergent
+Household & lighting | laundry detergent
+Household & lighting | sponges
+Household & lighting | bleach
+Household & lighting | broom
+Household & lighting | mop
+Household & lighting | dust pan
+Household & lighting | storage bins
+Household & lighting | baskets
+Household & lighting | laundry basket
+Household & lighting | plastic containers
+Household & lighting | mason jars
+Household & lighting | light bulbs
+Household & lighting | led bulbs
+Household & lighting | flashlight
+Household & lighting | extension cord
+Household & lighting | power strip
+Household & lighting | lamp
+Household & lighting | desk lamp
+Household & lighting | rug
+Household & lighting | throw blanket
+Household & lighting | pillow
+Household & lighting | bath towels
+Household & lighting | sheets
+Household & lighting | picture frame
+Household & lighting | wall clock
+Household & lighting | hangers
+Household & lighting | kitchen utensils
+Household & lighting | plates
+Household & lighting | cups
+Household & lighting | water bottle
+Household & lighting | food storage bags
+Household & lighting | aluminum foil
+Household & lighting | paper plates
+Household & lighting | plastic cutlery
+Household & lighting | napkins
+Household & lighting | candles
+Household & lighting | air freshener
+Household & lighting | hand towels
+Household & lighting | shower curtain
+
+# ---- Furniture & equipment
+Furniture & equipment | folding chair
+Furniture & equipment | folding table
+Furniture & equipment | step stool
+Furniture & equipment | shelf
+Furniture & equipment | storage cart
+Furniture & equipment | office chair
+Furniture & equipment | bean bag
+Furniture & equipment | fan
+Furniture & equipment | space heater
+Furniture & equipment | vacuum
+Furniture & equipment | microwave
+Furniture & equipment | coffee maker
+Furniture & equipment | toaster
+
+# ---- Food (donated snacks for classrooms)
+Food & beverage | granola bars
+Food & beverage | fruit snacks
+Food & beverage | crackers
+Food & beverage | juice boxes
+Food & beverage | bottled water

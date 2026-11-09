@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS item_master (
     notes            TEXT,              -- flags for the reviewer (used listing, stale offers, pending lookup)
     ns_item_id       TEXT,              -- NetSuite item internal ID once created
     model_number     TEXT,              -- manufacturer model number (from UPCitemdb); proves a store listing is this item
+    page_count       INTEGER,           -- books: page count from Google Books (sorts picture books from chapter books)
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );

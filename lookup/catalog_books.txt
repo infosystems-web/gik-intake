@@ -170,3 +170,365 @@ inauthor:"Joanna Cole"
 inauthor:"Kadir Nelson"
 inauthor:"Carole Boston Weatherford"
 inauthor:"Brad Meltzer"
+# ---- Juvenile fiction by topic (BISAC subjects) (added 11/9)
+subject:"juvenile fiction / action & adventure"
+subject:"juvenile fiction / animals / dogs"
+subject:"juvenile fiction / animals / cats"
+subject:"juvenile fiction / animals / horses"
+subject:"juvenile fiction / animals / farm animals"
+subject:"juvenile fiction / animals / dinosaurs"
+subject:"juvenile fiction / bedtime & dreams"
+subject:"juvenile fiction / biographical"
+subject:"juvenile fiction / boys & men"
+subject:"juvenile fiction / girls & women"
+subject:"juvenile fiction / diversity & multicultural"
+subject:"juvenile fiction / fairy tales & folklore"
+subject:"juvenile fiction / fantasy & magic"
+subject:"juvenile fiction / historical"
+subject:"juvenile fiction / holidays & celebrations"
+subject:"juvenile fiction / humorous"
+subject:"juvenile fiction / imagination & play"
+subject:"juvenile fiction / legends, myths, fables"
+subject:"juvenile fiction / mysteries & detective stories"
+subject:"juvenile fiction / nature & the natural world"
+subject:"juvenile fiction / people & places / united states"
+subject:"juvenile fiction / religious / christian"
+subject:"juvenile fiction / science fiction"
+subject:"juvenile fiction / social themes / emotions & feelings"
+subject:"juvenile fiction / social themes / bullying"
+subject:"juvenile fiction / social themes / self-esteem"
+subject:"juvenile fiction / sports & recreation"
+subject:"juvenile fiction / transportation / cars & trucks"
+subject:"juvenile fiction / concepts / alphabet"
+subject:"juvenile fiction / concepts / counting & numbers"
+subject:"juvenile fiction / concepts / colors"
+subject:"juvenile fiction / concepts / opposites"
+subject:"juvenile fiction / health & daily living"
+subject:"juvenile fiction / lifestyles / city & town life"
+subject:"juvenile fiction / love & romance"
+subject:"juvenile fiction / media tie-in"
+subject:"juvenile fiction / monsters"
+subject:"juvenile fiction / superheroes"
+subject:"juvenile fiction / toys, dolls & puppets"
+subject:"juvenile fiction / art"
+# ---- Juvenile nonfiction by topic (BISAC subjects) (added 11/9)
+subject:"juvenile nonfiction / animals"
+subject:"juvenile nonfiction / science & nature / weather"
+subject:"juvenile nonfiction / science & nature / earth sciences"
+subject:"juvenile nonfiction / science & nature / astronomy"
+subject:"juvenile nonfiction / science & nature / environmental"
+subject:"juvenile nonfiction / science & nature / experiments & projects"
+subject:"juvenile nonfiction / technology / computers"
+subject:"juvenile nonfiction / technology / engineering"
+subject:"juvenile nonfiction / mathematics / arithmetic"
+subject:"juvenile nonfiction / mathematics / geometry"
+subject:"juvenile nonfiction / history / united states"
+subject:"juvenile nonfiction / history / world"
+subject:"juvenile nonfiction / history / ancient"
+subject:"juvenile nonfiction / biography & autobiography / historical"
+subject:"juvenile nonfiction / biography & autobiography / social activists"
+subject:"juvenile nonfiction / social science / careers"
+subject:"juvenile nonfiction / social topics / emotions & feelings"
+subject:"juvenile nonfiction / health & daily living / nutrition"
+subject:"juvenile nonfiction / health & daily living / safety"
+subject:"juvenile nonfiction / language arts / vocabulary & spelling"
+subject:"juvenile nonfiction / language arts / grammar"
+subject:"juvenile nonfiction / language arts / handwriting"
+subject:"juvenile nonfiction / reference / encyclopedias"
+subject:"juvenile nonfiction / reference / dictionaries"
+subject:"juvenile nonfiction / games & activities / puzzles"
+subject:"juvenile nonfiction / games & activities / coloring"
+subject:"juvenile nonfiction / art / drawing"
+subject:"juvenile nonfiction / music"
+subject:"juvenile nonfiction / sports & recreation"
+subject:"juvenile nonfiction / transportation"
+subject:"juvenile nonfiction / holidays & celebrations"
+subject:"juvenile nonfiction / people & places / united states"
+subject:"juvenile nonfiction / foreign language study / spanish"
+subject:"juvenile nonfiction / cooking & food"
+subject:"juvenile nonfiction / poetry"
+# ---- Young adult by topic (added 11/9)
+subject:"young adult fiction / fantasy"
+subject:"young adult fiction / science fiction"
+subject:"young adult fiction / romance"
+subject:"young adult fiction / mysteries & detective stories"
+subject:"young adult fiction / historical"
+subject:"young adult fiction / social themes"
+subject:"young adult fiction / sports & recreation"
+subject:"young adult fiction / comics & graphic novels"
+subject:"young adult fiction / dystopian"
+subject:"young adult fiction / humorous"
+subject:"young adult fiction / biography & autobiography"
+subject:"young adult fiction / history"
+subject:"young adult fiction / science & nature"
+subject:"young adult fiction / careers"
+subject:"young adult fiction / health & daily living"
+subject:"young adult fiction / poetry"
+subject:"young adult nonfiction / biography & autobiography"
+subject:"young adult nonfiction / history"
+subject:"young adult nonfiction / science & nature"
+subject:"young adult nonfiction / careers"
+subject:"young adult nonfiction / health & daily living"
+subject:"young adult nonfiction / social topics"
+subject:"young adult nonfiction / study aids"
+# ---- Grade-level workbooks (grade in the title) (added 11/9)
+intitle:"kindergarten" math
+intitle:"kindergarten" reading
+intitle:"kindergarten" writing
+intitle:"kindergarten" spelling
+intitle:"kindergarten" phonics
+intitle:"kindergarten" science
+intitle:"kindergarten" vocabulary
+intitle:"grade 1" math
+intitle:"grade 1" reading
+intitle:"grade 1" writing
+intitle:"grade 1" spelling
+intitle:"grade 1" phonics
+intitle:"grade 1" science
+intitle:"grade 1" vocabulary
+intitle:"grade 2" math
+intitle:"grade 2" reading
+intitle:"grade 2" writing
+intitle:"grade 2" spelling
+intitle:"grade 2" phonics
+intitle:"grade 2" science
+intitle:"grade 2" vocabulary
+intitle:"grade 3" math
+intitle:"grade 3" reading
+intitle:"grade 3" writing
+intitle:"grade 3" spelling
+intitle:"grade 3" phonics
+intitle:"grade 3" science
+intitle:"grade 3" vocabulary
+intitle:"grade 4" math
+intitle:"grade 4" reading
+intitle:"grade 4" writing
+intitle:"grade 4" spelling
+intitle:"grade 4" phonics
+intitle:"grade 4" science
+intitle:"grade 4" vocabulary
+intitle:"grade 5" math
+intitle:"grade 5" reading
+intitle:"grade 5" writing
+intitle:"grade 5" spelling
+intitle:"grade 5" phonics
+intitle:"grade 5" science
+intitle:"grade 5" vocabulary
+intitle:"grade 6" math
+intitle:"grade 6" reading
+intitle:"grade 6" writing
+intitle:"grade 6" spelling
+intitle:"grade 6" phonics
+intitle:"grade 6" science
+intitle:"grade 6" vocabulary
+intitle:"grade 7" math
+intitle:"grade 7" reading
+intitle:"grade 7" writing
+intitle:"grade 7" spelling
+intitle:"grade 7" phonics
+intitle:"grade 7" science
+intitle:"grade 7" vocabulary
+intitle:"grade 8" math
+intitle:"grade 8" reading
+intitle:"grade 8" writing
+intitle:"grade 8" spelling
+intitle:"grade 8" phonics
+intitle:"grade 8" science
+intitle:"grade 8" vocabulary
+# ---- Grade levels and reading levels (added 11/9)
+intitle:"pre-k" workbook
+intitle:"preschool" workbook
+intitle:"first grade"
+intitle:"second grade"
+intitle:"third grade"
+intitle:"fourth grade"
+intitle:"fifth grade"
+intitle:"middle school" workbook
+intitle:"high school" study guide
+subject:"readers / beginner"
+subject:"readers / intermediate"
+subject:"readers / chapter books"
+intitle:"level 1" reader
+intitle:"level 2" reader
+intitle:"level 3" reader
+intitle:"leveled reader"
+intitle:"decodable"
+intitle:"sight words"
+intitle:"summer bridge"
+intitle:"test prep" grade
+# ---- Leveled reader series (added 11/9)
+"I Can Read"
+"Step into Reading"
+"Scholastic Reader"
+"Ready-to-Read"
+"DK Readers"
+"Penguin Young Readers" level
+"Bob Books"
+"Elephant & Piggie"
+"Magic Tree House"
+"Branches" scholastic
+"Acorn" scholastic
+"Who Was"
+"I Survived"
+"National Geographic Readers"
+"Rookie Read-About"
+"Let's-Read-and-Find-Out"
+# ---- More publishers (children's, school and teacher) (added 11/9)
+inpublisher:"Candlewick"
+inpublisher:"Chronicle Books"
+inpublisher:"Abrams Books for Young Readers"
+inpublisher:"Holiday House"
+inpublisher:"Charlesbridge"
+inpublisher:"Peachtree"
+inpublisher:"Lee & Low"
+inpublisher:"Albert Whitman"
+inpublisher:"Kids Can Press"
+inpublisher:"Barefoot Books"
+inpublisher:"Workman"
+inpublisher:"Klutz"
+inpublisher:"Capstone"
+inpublisher:"Lerner"
+inpublisher:"Rourke"
+inpublisher:"Crabtree"
+inpublisher:"Cavendish Square"
+inpublisher:"Benchmark Education"
+inpublisher:"Children's Press"
+inpublisher:"Scholastic Teaching Resources"
+inpublisher:"Heinemann"
+inpublisher:"Stenhouse"
+inpublisher:"Corwin"
+inpublisher:"Jossey-Bass"
+inpublisher:"Solution Tree"
+inpublisher:"ASCD"
+inpublisher:"Free Spirit"
+inpublisher:"Kaplan"
+inpublisher:"Barron's"
+inpublisher:"Princeton Review"
+inpublisher:"Pearson"
+inpublisher:"McGraw Hill"
+inpublisher:"Houghton Mifflin Harcourt"
+inpublisher:"Savvas"
+inpublisher:"Cengage"
+inpublisher:"Wiley"
+inpublisher:"Zaner-Bloser"
+inpublisher:"Rainbow Bridge"
+inpublisher:"School Zone"
+inpublisher:"Kumon"
+inpublisher:"Thinking Kids"
+inpublisher:"Brighter Child"
+inpublisher:"American Education Publishing"
+inpublisher:"Sylvan Learning"
+inpublisher:"Mark Twain Media"
+inpublisher:"Shell Education"
+inpublisher:"Teacher Created Materials"
+inpublisher:"Newmark Learning"
+inpublisher:"Highlights for Children"
+inpublisher:"Disney Press"
+inpublisher:"Golden Books"
+inpublisher:"Little Golden Books"
+inpublisher:"LEGO"
+inpublisher:"Marvel"
+inpublisher:"DC Comics"
+inpublisher:"Graphix"
+inpublisher:"Scholastic en espanol"
+inpublisher:"Lectorum"
+# ---- More authors (picture books, chapter books, middle grade, YA, nonfiction) (added 11/9)
+inauthor:"Vera B. Williams"
+inauthor:"Robert McCloskey"
+inauthor:"Virginia Lee Burton"
+inauthor:"Donald Crews"
+inauthor:"Lois Ehlert"
+inauthor:"Denise Fleming"
+inauthor:"Byron Barton"
+inauthor:"Anne Rockwell"
+inauthor:"Molly Bang"
+inauthor:"Eric Litwin"
+inauthor:"Aaron Reynolds"
+inauthor:"Mac Barnett"
+inauthor:"Corey R. Tabor"
+inauthor:"Elise Gravel"
+inauthor:"Jarvis"
+inauthor:"Chris Haughton"
+inauthor:"Hervé Tullet"
+inauthor:"Beatrice Alemagna"
+inauthor:"Javaka Steptoe"
+inauthor:"Derrick Barnes"
+inauthor:"Andrea Davis Pinkney"
+inauthor:"Sherri Duskey Rinker"
+inauthor:"Bob Shea"
+inauthor:"Sandra Markle"
+inauthor:"Melissa Stewart"
+inauthor:"Nic Bishop"
+inauthor:"Kate Messner"
+inauthor:"Annie Barrows"
+inauthor:"Sara Pennypacker"
+inauthor:"Lenore Look"
+inauthor:"Stacy McAnulty"
+inauthor:"Kate Klise"
+inauthor:"Lisa Yee"
+inauthor:"Erica S. Perl"
+inauthor:"Nancy Krulik"
+inauthor:"Geronimo Stilton"
+inauthor:"Ruth Chew"
+inauthor:"Dan Gemeinhart"
+inauthor:"Katherine Applegate"
+inauthor:"Pam Muñoz Ryan"
+inauthor:"Linda Sue Park"
+inauthor:"Kelly Yang"
+inauthor:"Erin Entrada Kelly"
+inauthor:"Meg Medina"
+inauthor:"Rebecca Stead"
+inauthor:"Lynda Mullaly Hunt"
+inauthor:"Alan Gratz"
+inauthor:"Chris Grabenstein"
+inauthor:"Stuart Gibbs"
+inauthor:"Jeff Brown"
+inauthor:"Lemony Snicket"
+inauthor:"Suzanne Collins"
+inauthor:"Kiera Cass"
+inauthor:"John Green"
+inauthor:"Angie Thomas"
+inauthor:"Nic Stone"
+inauthor:"Elizabeth Acevedo"
+inauthor:"Neal Shusterman"
+inauthor:"Marissa Meyer"
+inauthor:"Rainbow Rowell"
+inauthor:"Sharon M. Draper"
+inauthor:"Walter Dean Myers"
+inauthor:"Christopher Paolini"
+inauthor:"Cassandra Clare"
+inauthor:"Holly Black"
+inauthor:"Leigh Bardugo"
+inauthor:"Ellen Hopkins"
+inauthor:"Patricia McKissack"
+inauthor:"Virginia Hamilton"
+inauthor:"Russell Freedman"
+inauthor:"Steve Sheinkin"
+inauthor:"Candace Fleming"
+inauthor:"Jim Arnosky"
+inauthor:"Seymour Reit"
+inauthor:"Ann Morris"
+inauthor:"DK"
+# ---- Spanish and bilingual (added 11/9)
+subject:"juvenile fiction / bilingual"
+subject:"juvenile nonfiction / bilingual"
+"libro infantil"
+"cuentos para niños"
+bilingual english spanish picture book
+"leer en español"
+# ---- Teacher and classroom resources (added 11/9)
+subject:"education / teaching methods & materials / reading & phonics"
+subject:"education / teaching methods & materials / mathematics"
+subject:"education / teaching methods & materials / science & technology"
+subject:"education / teaching methods & materials / language arts"
+subject:"education / early childhood"
+subject:"education / classroom management"
+subject:"education / special education / learning disabilities"
+subject:"education / counseling"
+"social emotional learning" classroom
+"guided reading" teacher
+"close reading" lessons
+"morning meeting" classroom
+"writing workshop"
+"math centers"
+"STEM activities" kids

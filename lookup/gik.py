@@ -782,7 +782,7 @@ def maybe_openprices(conn, gtin14: str, now: str):
                       fmv_unit=excluded.fmv_unit, fmv_source_url=excluded.fmv_source_url, fmv_merchant=excluded.fmv_merchant,
                       fmv_captured_at=excluded.fmv_captured_at, fmv_status='unverified', notes=excluded.notes, updated_at=excluded.updated_at""",
                  (gtin14, (pick.get("title") or None), pick["price"], pick["link"], pick["merchant"], now, note, now))
-    return {"price": pick["price"], "url": pick["link"], "merchant": pick["merchant"]}
+    return {"price": pick["price"], "url": pick["link"], "merchant": pick["merchant"], "n": len(offers), "note": note}
 
 
 # Extra price sources live in extra_sources.py next to this file, so a new source is one small file, not a new gik.py.
@@ -828,7 +828,7 @@ def maybe_extra_sources(conn, gtin14: str, now: str):
                           notes=excluded.notes, updated_at=excluded.updated_at""",
                      (gtin14, info.get("name") or pick.get("title") or None, info.get("brand"), pick["price"], pick.get("link"),
                       pick.get("merchant"), now, name, note, now))
-        return {"price": pick["price"], "url": pick.get("link"), "merchant": pick.get("merchant")}
+        return {"price": pick["price"], "url": pick.get("link"), "merchant": pick.get("merchant"), "n": len(good), "note": note}
     return None
 
 
@@ -976,7 +976,7 @@ def do_lookup(conn, gtin14: str, mock=False, api_key=None, source_label=None, th
             r = conn.execute("SELECT name, category FROM item_master WHERE gtin=?", (gtin14,)).fetchone()
             if val:
                 return {"gtin": gtin14, "status": "unverified", "name": r["name"], "category": r["category"], "fmv": val["price"],
-                        "url": val["url"], "offers": val["n"], "note": "eBay median; confirm at a store"}
+                        "url": val["url"], "offers": val.get("n", 1), "note": val.get("note") or "eBay median; confirm at a store"}
             return {"gtin": gtin14, "status": "named" if (r and r["name"]) else "not_found", "http": st, "name": r["name"] if r else None,
                     "category": (r["category"] if r else None) or hint_cat, "fmv": None}
     status, body = fetch_mock(gtin14) if mock else fetch_upcitemdb(gtin14, api_key)
@@ -1008,7 +1008,7 @@ def do_lookup(conn, gtin14: str, mock=False, api_key=None, source_label=None, th
         val = maybe_ebay(conn, gtin14, now)
         if val:
             return {"gtin": gtin14, "status": "unverified", "name": conn.execute("SELECT name FROM item_master WHERE gtin=?", (gtin14,)).fetchone()["name"],
-                    "category": None, "fmv": val["price"], "url": val["url"], "offers": val["n"], "note": "eBay median; confirm at a store"}
+                    "category": None, "fmv": val["price"], "url": val["url"], "offers": val.get("n", 1), "note": val.get("note") or "eBay median; confirm at a store"}
         return {"gtin": gtin14, "status": "pending", "http": status}
     if status != 200 or not items:
         conn.execute("""INSERT INTO item_master (gtin, fmv_status, lookup_source, notes, updated_at)
@@ -1023,7 +1023,7 @@ def do_lookup(conn, gtin14: str, mock=False, api_key=None, source_label=None, th
         if val:
             r = conn.execute("SELECT name, category FROM item_master WHERE gtin=?", (gtin14,)).fetchone()
             return {"gtin": gtin14, "status": "unverified", "name": r["name"], "category": r["category"], "fmv": val["price"],
-                    "url": val["url"], "offers": val["n"], "note": "eBay median; confirm at a store"}
+                    "url": val["url"], "offers": val.get("n", 1), "note": val.get("note") or "eBay median; confirm at a store"}
         return {"gtin": gtin14, "status": "not_found", "http": status}
     it = items[0]
     record_offers(conn, gtin14, it.get("offers") or [], source)
@@ -1069,7 +1069,7 @@ def do_lookup(conn, gtin14: str, mock=False, api_key=None, source_label=None, th
         val = maybe_ebay(conn, gtin14, now)
         if val:
             return {"gtin": gtin14, "status": fmv_status, "name": title, "brand": it.get("brand"), "category": cat,
-                    "raw_category": raw_cat, "fmv": val["price"], "url": val["url"], "offers": val["n"], "note": "eBay median; confirm at a store"}
+                    "raw_category": raw_cat, "fmv": val["price"], "url": val["url"], "offers": val.get("n", 1), "note": val.get("note") or "eBay median; confirm at a store"}
     return {"gtin": gtin14, "status": fmv_status, "name": title, "brand": it.get("brand"),
             "category": cat, "raw_category": raw_cat, "fmv": pick["price"], "url": pick["url"], "offers": pick["n"], "note": note}
 

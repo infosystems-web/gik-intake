@@ -220,3 +220,13 @@ def test_more_places_counts_ebay_once_and_stops_at_three(conn, monkeypatch):
     assert calls == ["kroger", "walmart"]          # eBay sellers = 1 place; Kroger + Walmart make 3; then it stops
     cs.evidence_fill(conn, gik, 10)
     assert calls == ["kroger", "walmart"]          # three places reached: nothing asked again
+
+
+def test_book_budget_uses_the_daily_quota_and_keeps_a_reserve(conn):
+    from datetime import datetime as dt
+    # 20:00 UTC: 12 hours left before the 08:00 UTC reset; nothing used yet -> (960-120)/12 = 70 calls -> 14 queries
+    assert cs.books_budget(conn, dt(2026, 11, 9, 20, 0)) == 14
+    for i in range(160):  # 160 seed queries x 5 pages = 800 calls today: only the scanned-book reserve is left
+        conn.execute("INSERT INTO lookup_log (gtin, source, http_status) VALUES (?, 'gbooks-seed', 200)", (f"SEED:gbooks:q{i}",))
+    conn.commit()
+    assert cs.books_budget(conn, dt(2026, 11, 9, 20, 0)) == 0

@@ -251,6 +251,8 @@ def books_budget(conn, now=None):
     hourly runs left before the reset, so the full 1,000 is used every day without starving scanned books."""
     now = now or datetime.utcnow()
     hours_left = (8 - now.hour) % 24 or 24
+    if os.environ.get("GIK_BOOKS_CATCHUP", "").lower() in ("1", "true", "yes"):
+        hours_left = 1  # catch-up run (started by hand): spend what is left of today's quota now, still keeping the reserve
     left = BOOKS_DAILY - BOOKS_RESERVE - books_calls_today(conn)
     return max(0, min(BOOKS_PER_RUN, left // max(1, hours_left) // BOOK_PAGES))
 

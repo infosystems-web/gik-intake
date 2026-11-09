@@ -119,7 +119,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#fff8f3}
       <div><select id="catType"><option value="">All types</option><option>Product (UPC)</option><option>Book (ISBN)</option><option>No barcode</option></select></div></div>
     <div class="row" style="margin-top:8px">
       <div><select id="catOrigin"><option value="">Scanned + pre-loaded</option><option>Scanned</option><option>Pre-loaded</option><option>Looked up</option><option>No-barcode item</option></select></div>
-      <div><select id="catStatus"><option value="">Any status</option><option value="priced">Has a value</option><option value="noprice">No value yet</option><option value="unverified">Needs review</option><option value="verified">Verified</option><option value="ready">Ready for NetSuite</option><option value="not_found">Not found</option></select></div>
+      <div><select id="catStatus"><option value="">Any status</option><option value="priced">Has a value</option><option value="noprice">No value yet</option><option value="unverified">Needs review</option><option value="verified">Verified</option><option value="three">Found in 3 places</option><option value="ready">Ready for NetSuite</option><option value="not_found">Not found</option></select></div>
       <div><select id="catSource"><option value="">Any value source</option></select></div>
       <div><select id="catSort"><option value="created_at.desc">Newest first</option><option value="units_scanned.desc">Most scanned</option><option value="fmv_unit.desc">Highest value</option><option value="name.asc">Name A-Z</option><option value="category.asc">Category</option></select></div></div>
     <div style="overflow:auto;margin-top:8px"><table id="catTable"><thead><tr><th>Barcode</th><th>Item</th><th>Category</th><th>Value</th><th>Proof</th><th>Scanned</th><th>Status</th></tr></thead><tbody></tbody></table></div>
@@ -325,6 +325,18 @@ async function flush() {
     savedCount += batch.length;
     const names = await sb.from("item_master").select("gtin, name, fmv_unit").in("gtin", gtins);
     if (!names.error) for (const n of names.data) sessionRows.filter((s) => s.gtin === n.gtin).forEach((s) => { s.name = n.name || s.name; s.fmv = n.fmv_unit; });
+    // pre-built reference catalog: name a new barcode at once instead of waiting for the next lookup run
+    const missing = gtins.filter((g) => !(names.data || []).some((n) => n.gtin === g && n.name));
+    if (missing.length) {
+      const ref = await sb.from("products").select("gtin, name, brand, category_hint, source").in("gtin", missing);
+      if (!ref.error) for (const p of ref.data) {
+        sessionRows.filter((s) => s.gtin === p.gtin).forEach((s) => { s.name = p.name; });
+        const fix = { name: p.name, notes: "name from " + p.source + " reference catalog" };
+        if (p.brand) fix.brand = p.brand;
+        if (p.category_hint) fix.category = p.category_hint;
+        await sb.from("item_master").update(fix).eq("gtin", p.gtin).is("name", null);
+      }
+    }
     $("#saveState").textContent = "";
   } catch (e) {
     console.error(e);

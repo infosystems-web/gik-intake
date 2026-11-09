@@ -260,7 +260,8 @@ def migrate(conn):
         return
     if not cols:
         return
-    for col, ddl in (("fmv_merchant", "TEXT"), ("notes", "TEXT"), ("offer_updated", "TEXT"), ("model_number", "TEXT")):
+    for col, ddl in (("fmv_merchant", "TEXT"), ("notes", "TEXT"), ("offer_updated", "TEXT"), ("model_number", "TEXT"),
+                     ("page_count", "INTEGER")):
         if col not in cols:
             conn.execute(f"ALTER TABLE item_master ADD COLUMN {col} {ddl}")
     ocols = {r["name"] for r in conn.execute("PRAGMA table_info(offers)")}
@@ -540,8 +541,10 @@ def parse_googlebooks(data: dict):
             price, merchant = round(float(p["amount"]), 2), label
             break
     url = sale.get("buyLink") or info.get("infoLink") or info.get("canonicalVolumeLink")
+    pages = info.get("pageCount")
     return {"title": title, "brand": info.get("publisher"), "category": "Books & media",
-            "raw_category": "Books > " + " / ".join(info.get("categories") or []), "price": price, "url": url, "merchant": merchant}
+            "raw_category": "Books > " + " / ".join(info.get("categories") or []), "price": price, "url": url, "merchant": merchant,
+            "page_count": int(pages) if isinstance(pages, (int, float)) and 0 < pages < 5000 else None}
 
 
 # ---------------------------------------------------------------- UPC Database (upcdatabase.org, free key, 100 lookups/day)
@@ -991,8 +994,8 @@ def upsert_book(conn, gtin14: str, b: dict, now: str, source: str):
     """Write what Google Books / Open Library know. Publisher list price, when present, is the FMV."""
     note = None if b.get("price") else "no list price yet; confirm from store links"
     conn.execute("""INSERT INTO item_master (gtin, name, brand, category, raw_category, fmv_unit, fmv_source_url, fmv_merchant,
-                                             fmv_captured_at, fmv_status, lookup_source, notes, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,'unverified',?,?,?)
+                                             fmv_captured_at, fmv_status, lookup_source, notes, updated_at, page_count)
+                    VALUES (?,?,?,?,?,?,?,?,?,'unverified',?,?,?,?)
                     ON CONFLICT(gtin) DO UPDATE SET
                       name=excluded.name, brand=COALESCE(excluded.brand, item_master.brand),
                       category=COALESCE(item_master.category, excluded.category), raw_category=excluded.raw_category,
@@ -1003,9 +1006,9 @@ def upsert_book(conn, gtin14: str, b: dict, now: str, source: str):
                       fmv_status=CASE WHEN item_master.fmv_status='verified' THEN 'verified' ELSE 'unverified' END,
                       lookup_source=excluded.lookup_source,
                       notes=CASE WHEN excluded.fmv_unit IS NOT NULL THEN NULL ELSE COALESCE(item_master.notes, excluded.notes) END,
-                      updated_at=excluded.updated_at""",
+                      updated_at=excluded.updated_at, page_count=COALESCE(excluded.page_count, item_master.page_count)""",
                  (gtin14, b["title"], b.get("brand"), b.get("category", "Books & media"), b.get("raw_category"), b.get("price"),
-                  b.get("url"), b.get("merchant"), now if b.get("price") else None, source, note, now))
+                  b.get("url"), b.get("merchant"), now if b.get("price") else None, source, note, now, b.get("page_count")))
 
 
 def do_lookup(conn, gtin14: str, mock=False, api_key=None, source_label=None, thorough=False, skip_upc=False):
@@ -2186,7 +2189,7 @@ def cmd_cloud(args):
 
 
 LOOKUP_COLS = ["name", "brand", "category", "raw_category", "fmv_unit", "fmv_basis", "fmv_source_url", "fmv_merchant",
-               "offer_updated", "fmv_captured_at", "fmv_status", "lookup_source", "notes", "updated_at", "model_number"]
+               "offer_updated", "fmv_captured_at", "fmv_status", "lookup_source", "notes", "updated_at", "model_number", "page_count"]
 
 
 def cloud_sync(conn, pg, args):

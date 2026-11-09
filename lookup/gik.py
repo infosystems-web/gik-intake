@@ -1137,6 +1137,12 @@ def pending_lookups(conn, include_misses=False):
                                  AND NOT EXISTS (SELECT 1 FROM lookup_log l WHERE l.gtin = im.gtin AND l.source = 'ebay')"""):
             if r["gtin"] not in out:
                 out.append(r["gtin"])
+    # Spend the scarce daily lookups where the dollars are: scanned items first, most units first. Pre-loaded catalog
+    # items that nobody has scanned are left to the catalog price fill (free, unlimited sources), never queued here.
+    units = {r[0]: r[1] for r in conn.execute("SELECT gtin, SUM(qty) FROM receipts GROUP BY gtin")}
+    seeded = {r[0] for r in conn.execute("SELECT gtin FROM item_master WHERE lookup_source LIKE '%-seed'")}
+    out = [g for g in out if g in units or g not in seeded]
+    out.sort(key=lambda g: -(units.get(g) or 0))
     return out
 
 
@@ -1216,7 +1222,7 @@ def cmd_refresh(args):
     n = 0
     for it in conn.execute("SELECT gtin FROM item_master WHERE fmv_status <> 'verified'").fetchall():
         log = conn.execute("""SELECT raw_response, source FROM lookup_log WHERE gtin=? AND http_status=200
-                              AND source NOT IN ('googlebooks','openlibrary','openfoodfacts','openproductsfacts','openbeautyfacts','ebay')
+                              AND source IN ('upcitemdb','upcdatabase','mock')
                               ORDER BY log_id DESC LIMIT 1""",
                            (it["gtin"],)).fetchone()
         if not log:
@@ -1228,7 +1234,7 @@ def cmd_refresh(args):
         else:
             try:
                 items = json.loads(log["raw_response"]).get("items") or []
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 continue
             if not items:
                 continue
@@ -1267,7 +1273,7 @@ def cmd_refresh(args):
             continue
         try:
             parsed = parse_googlebooks(json.loads(log["raw_response"]))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             parsed = None
         if parsed:
             upsert_book(conn, it["gtin"], parsed, now, "googlebooks")
@@ -2005,7 +2011,12 @@ def cloud_pull(conn, pg):
             pg_cols, _ = cloud_columns(pg, t)
             cols = [c for c in local_cols if c in pg_cols]
             pk = [r[1] for r in sorted(conn.execute(f"PRAGMA table_info({t})"), key=lambda r: r[5]) if r[5]]
-            cur.execute(f"select {','.join(cols)} from gik.{t}")
+            if t == "lookup_log":  # only what the run needs: last 90 days, raw text only for answers the rules re-read
+                sel = ", ".join(f"case when source in ('upcitemdb','upcdatabase','googlebooks') then {c} end" if c == "raw_response" else c
+                                for c in cols)
+                cur.execute(f"select {sel} from gik.lookup_log where requested_at > now() - interval '90 days'")
+            else:
+                cur.execute(f"select {','.join(cols)} from gik.{t}")
             rows = cur.fetchall()
             upd = [c for c in cols if c not in pk]
             tail = (f"ON CONFLICT({','.join(pk)}) DO UPDATE SET " + ", ".join(f"{c}=excluded.{c}" for c in upd)) if pk and upd else "ON CONFLICT DO NOTHING"
@@ -2092,7 +2103,11 @@ def cloud_sync(conn, pg, args):
             o_cols = list(new_offers[0].keys()) if new_offers else []
             n_off = _push_rows(cur, pg, "offers", o_cols, [tuple(r) for r in new_offers]) if new_offers else 0
             l_cols = list(new_logs[0].keys()) if new_logs else []
-            n_log = _push_rows(cur, pg, "lookup_log", l_cols, [tuple(r) for r in new_logs]) if new_logs else 0
+            ri = l_cols.index("raw_response") if "raw_response" in l_cols else -1
+            keep_raw = ("upcitemdb", "upcdatabase", "googlebooks")  # re-read by the refresh rules; others: 2 KB is enough
+            log_rows = [tuple((v[:2000] if (i == ri and v and r["source"] not in keep_raw and r["http_status"] == 200) else v)
+                              for i, v in enumerate(r)) for r in new_logs]
+            n_log = _push_rows(cur, pg, "lookup_log", l_cols, log_rows) if new_logs else 0
         pg.commit()
         print(f"\nSynced to cloud: {len(changed)} barcodes updated, {n_off} new prices, {n_log} lookup records.")
     except Exception as e:

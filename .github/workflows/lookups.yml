@@ -39,7 +39,12 @@ jobs:
           GIK_FILL: "150"
           GIK_EVIDENCE: "75"
           GIK_SERPER_PER_RUN: "7"
+        # The repo is public until it moves to a private nonprofit organization: the full log (item names, barcodes)
+        # goes to a file on the runner only; the public log shows summary lines and errors, never items.
         run: |
-          python gik.py init
-          python gik.py cloud sync --max 250 --seed 50
-          python bulk_products.py apply
+          set -o pipefail
+          LOG="$RUNNER_TEMP/run.log"
+          status=0
+          { python gik.py init && python gik.py cloud sync --max 250 --seed 50 && python bulk_products.py apply; } > "$LOG" 2>&1 || status=$?
+          grep -E "^(Pulled from cloud|Done:|Refreshed|Book seed:|Catalog seed:|Price fill:|More places:|Three places:|Synced to cloud|Sync push|Named |Barcode prefix|Traceback|[A-Za-z0-9_.]*(Error|Exception))" "$LOG" || true
+          exit $status

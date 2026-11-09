@@ -7,7 +7,7 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0) + "%";
 const CAT_PAGE = 100; let catPage = 0, catTimer = null;
 window.onCatalogView = (v) => {
   clearInterval(catTimer); catTimer = null;
-  if (v === "catalog") { loadCatalog(); catTimer = setInterval(() => { if (!document.hidden) loadCatalog(true); }, 60000); }
+  if (v === "catalog") { loadCatalog(); catTimer = setInterval(() => { if (!document.hidden) loadCatalog(true); }, 300000); }
 };
 const CAT_COLS = "gtin,upc,name,brand,category,fmv_unit,fmv_basis,fmv_status,fmv_source_url,fmv_merchant,fmv_captured_at,price_source,origin,code_type,units_scanned,last_scanned,netsuite_ready,ns_item_id,debit_account_id,debit_account_name,credit_account_id,credit_account_name,class_id,class_name,created_at,merchants_with_proof";
 function catFilters(q) {

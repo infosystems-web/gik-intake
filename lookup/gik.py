@@ -2068,6 +2068,14 @@ def cloud_sync(conn, pg, args):
     conn.close()
     cmd_retry(args)
     cmd_refresh(args)
+    if getattr(args, "seed", 0):  # catalog seed: pre-load likely items (catalog_seed.py + catalog_terms.txt)
+        try:
+            import catalog_seed
+            c2 = connect()
+            catalog_seed.run(c2, args.seed, sys.modules[__name__])
+            c2.close()
+        except Exception as e:
+            print(f"Catalog seed skipped: {e}")
     conn = connect()
     changed = [tuple(r) for r in conn.execute(f"SELECT gtin,{','.join(LOOKUP_COLS)} FROM item_master") if before.get(r["gtin"]) != tuple(r)]
     new_offers = conn.execute("SELECT * FROM offers WHERE offer_id > ?", (max_offer,)).fetchall()
@@ -2154,6 +2162,7 @@ def main():
     cl.add_argument("action", choices=["push", "status", "sync"])
     cl.add_argument("--max", type=int, default=0, help="sync: look up at most this many barcodes per run")
     cl.add_argument("--gap", type=float, default=7.0); cl.add_argument("--all", action="store_true"); cl.add_argument("--mock", action="store_true")
+    cl.add_argument("--seed", type=int, default=0, help="sync: also seed the catalog with up to this many search terms (catalog_terms.txt)")
     cl.set_defaults(fn=cmd_cloud)
 
     args = p.parse_args()

@@ -219,3 +219,83 @@ Food & beverage | fruit snacks
 Food & beverage | crackers
 Food & beverage | juice boxes
 Food & beverage | bottled water
+
+# ---- Toys, games & play (added 11/8)
+School supplies | lego
+School supplies | duplo
+School supplies | dolls
+School supplies | action figures
+School supplies | toy cars
+School supplies | stuffed animals
+School supplies | plush toys
+School supplies | baby toys
+School supplies | educational toys
+School supplies | stem kit
+School supplies | science kit
+School supplies | magnetic tiles
+School supplies | kinetic sand
+School supplies | slime kit
+School supplies | bubbles
+School supplies | frisbee
+School supplies | soccer ball
+School supplies | basketball
+School supplies | football
+School supplies | kickball
+School supplies | hula hoop
+School supplies | uno
+School supplies | playing cards
+School supplies | chess set
+School supplies | dominoes
+School supplies | jigsaw puzzle 500
+School supplies | craft kit
+School supplies | bead kit
+School supplies | friendship bracelet kit
+School supplies | crayola
+School supplies | elmers
+School supplies | sharpie
+School supplies | expo markers
+School supplies | post-it
+School supplies | five star notebook
+School supplies | mead notebook
+School supplies | ticonderoga pencils
+
+# ---- Baby & family
+Apparel & hygiene | baby shampoo
+Apparel & hygiene | baby lotion
+Apparel & hygiene | diaper rash cream
+Apparel & hygiene | pull ups
+Household & lighting | baby bottles
+Household & lighting | sippy cup
+Household & lighting | baby blanket
+Household & lighting | bibs
+
+# ---- Kitchen, party & seasonal
+Household & lighting | mixing bowls
+Household & lighting | baking sheet
+Household & lighting | measuring cups
+Household & lighting | dish towels
+Household & lighting | oven mitts
+Household & lighting | food containers
+Household & lighting | party plates
+Household & lighting | balloons
+Household & lighting | gift bags
+Household & lighting | wrapping paper
+Household & lighting | tissue paper
+Household & lighting | holiday decorations
+Household & lighting | halloween decorations
+Household & lighting | christmas decorations
+Household & lighting | string lights
+Household & lighting | umbrella
+Household & lighting | reusable bags
+Household & lighting | tote bag
+Household & lighting | cooler
+
+# ---- Clothing & cold weather
+Apparel & hygiene | kids gloves
+Apparel & hygiene | mittens
+Apparel & hygiene | beanie
+Apparel & hygiene | hand warmers
+Apparel & hygiene | leggings
+Apparel & hygiene | sweatshirt
+Apparel & hygiene | pajamas
+Apparel & hygiene | slippers

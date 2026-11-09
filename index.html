@@ -38,13 +38,19 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 .login{max-width:420px;margin:60px auto;text-align:center}
 .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#eef1f7;padding:1px 6px;border-radius:4px}
 .lastscan{display:flex;gap:14px;align-items:center;padding:12px;border-radius:10px;background:#fff8e6;border:1px solid #f3dd9a;margin-top:10px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
+.stat{border:1px solid var(--line);border-top:4px solid var(--orange);border-radius:10px;padding:10px 12px}
+.stat .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}.stat .v{font-size:26px;font-weight:700;color:var(--navy);line-height:1.2}.stat .s{font-size:12px;color:var(--muted)}
+.bar{position:relative;height:12px;background:#eef1f7;border-radius:6px;overflow:hidden;min-width:90px}.bar span{position:absolute;left:0;top:0;bottom:0;background:#c9d2e6}.bar span.p{background:var(--navy)}
+.legend i{display:inline-block;width:10px;height:10px;background:var(--navy);border-radius:2px;margin:0 3px 0 8px;vertical-align:middle}
+tr.clk{cursor:pointer}tr.clk:hover{background:#fff8f3}
 @media (max-width:600px){.big{font-size:30px}header .who{font-size:12px}}
 </style>
 </head>
 <body>
 <header><h1>TEP <span>GIK Intake</span></h1><div class="who" id="who"></div></header>
 <nav id="nav" class="hidden">
-  <button data-v="scan" class="on">Scan</button><button data-v="donations">Donations</button>
+  <button data-v="scan" class="on">Scan</button><button data-v="catalog">Catalog</button><button data-v="donations">Donations</button>
   <button data-v="review">Review</button><button data-v="values">Values &amp; export</button>
 </nav>
 <main>
@@ -95,6 +101,32 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
     <p><button class="btn" id="btnDonation">Create donation</button></p>
   </div>
   <div class="card"><h2>Donations</h2><div style="overflow:auto"><table id="donTable"><thead><tr><th>ID</th><th>Donor</th><th>Date</th><th>Pallets</th><th>Units</th><th>Verified value</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<section id="v-catalog" class="hidden">
+  <div class="card"><div class="row" style="align-items:baseline"><h2 style="margin:0">GIK Catalog</h2><span class="small muted" id="catUpdated" style="text-align:right"></span></div>
+    <p class="small muted">Every item TEP has scanned or pre-loaded, with its value and the store page that proves it. New items are added automatically every 3 hours from free sources (Kroger, Google Books, eBay, Open Prices), so a scan of a common item is already named and priced. Staff verify values before anything goes to NetSuite. This page refreshes itself every minute.</p>
+    <div class="stats" id="catStats"></div>
+    <button class="btn sec" id="btnCatLink">Copy link for directors</button>
+  </div>
+  <div class="card"><h2>By category <span class="small muted">(each category posts to its own NetSuite GL account)</span></h2>
+    <div style="overflow:auto"><table id="catByCat"><thead><tr><th>Category</th><th style="width:28%">Items <span class="legend"><i></i>priced</span></th><th>Items</th><th>Priced</th><th>Units scanned</th><th>Avg value</th><th>GL credit account</th></tr></thead><tbody></tbody></table></div>
+    <p class="small muted" style="margin-bottom:0">Where values come from: <span id="catBySrc"></span></p>
+  </div>
+  <div class="card"><h2>Items <span class="small muted" id="catCount"></span></h2>
+    <div class="row"><div style="flex:2 1 220px"><input id="catSearch" placeholder="Search name, brand or barcode"></div>
+      <div><select id="catCat"><option value="">All categories</option></select></div>
+      <div><select id="catType"><option value="">All types</option><option>Product (UPC)</option><option>Book (ISBN)</option><option>No barcode</option></select></div></div>
+    <div class="row" style="margin-top:8px">
+      <div><select id="catOrigin"><option value="">Scanned + pre-loaded</option><option>Scanned</option><option>Pre-loaded</option><option>Looked up</option><option>No-barcode item</option></select></div>
+      <div><select id="catStatus"><option value="">Any status</option><option value="priced">Has a value</option><option value="noprice">No value yet</option><option value="unverified">Needs review</option><option value="verified">Verified</option><option value="ready">Ready for NetSuite</option><option value="not_found">Not found</option></select></div>
+      <div><select id="catSource"><option value="">Any value source</option></select></div>
+      <div><select id="catSort"><option value="created_at.desc">Newest first</option><option value="units_scanned.desc">Most scanned</option><option value="fmv_unit.desc">Highest value</option><option value="name.asc">Name A-Z</option><option value="category.asc">Category</option></select></div></div>
+    <div style="overflow:auto;margin-top:8px"><table id="catTable"><thead><tr><th>Barcode</th><th>Item</th><th>Category</th><th>Value</th><th>Proof</th><th>Scanned</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+    <div class="row" style="align-items:center;margin-top:10px"><div><button class="btn sec" id="catPrev">&lsaquo; Prev</button> <button class="btn sec" id="catNext">Next &rsaquo;</button> <span class="small muted" id="catPageInfo"></span></div>
+      <div style="text-align:right;flex:2 1 320px"><button class="btn sec" id="btnCatCsv">Download this list (CSV)</button> <button class="btn" id="btnNsCsv">NetSuite item import (CSV)</button>
+        <div class="small muted"><label style="display:inline;font-size:13px"><input type="checkbox" id="nsDraft" style="width:auto;vertical-align:middle"> include items not yet verified (marked DRAFT)</label></div></div></div>
+  </div>
 </section>
 
 <section id="v-review" class="hidden">
@@ -161,7 +193,7 @@ async function onSession(session) {
   $("#who").innerHTML = `${esc(email)} ${isStaff ? '<span class="pill ok">staff</span>' : '<span class="pill">volunteer</span>'} <button class="btn sec" style="padding:4px 10px" id="btnOut">Sign out</button>`;
   $("#btnOut").onclick = () => sb.auth.signOut();
   $("#nav").classList.remove("hidden");
-  await loadRefs(); show("scan");
+  await loadRefs(); show(location.hash === "#catalog" ? "catalog" : "scan");
 }
 // Never await Supabase calls inside the auth callback (it holds a lock and deadlocks every later request); defer instead.
 let sessionKey = null;
@@ -182,6 +214,7 @@ function show(v) {
   if (v === "donations") loadDonationsTable();
   if (v === "review") loadReview();
   if (v === "values") loadValues();
+  if (window.onCatalogView) window.onCatalogView(v);  // catalog.js
 }
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => show(b.dataset.v)));
 
@@ -468,5 +501,6 @@ $("#btnReceiptsCsv").onclick = async () => {
 // keep the scan box focused on the scan screen so a gun always lands there
 document.addEventListener("click", (e) => { if (!$("#v-scan").classList.contains("hidden") && !e.target.closest("input,select,button,a,textarea,.hit")) $("#scan").focus(); });
 </script>
+<script src="catalog.js"></script>
 </body>
 </html>

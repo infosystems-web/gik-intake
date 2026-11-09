@@ -29,7 +29,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TERMS_FILE = os.path.join(HERE, "catalog_terms.txt")
 BOOKS_FILE = os.path.join(HERE, "catalog_books.txt")
 BOOK_PAGES = int(os.environ.get("GIK_SEED_BOOK_PAGES", "5"))  # Google Books returns up to 40 per page
-BOOKS_PER_RUN = int(os.environ.get("GIK_SEED_BOOKS", "6"))    # 6 queries x 5 pages = 30 calls/run, ~240/day: leaves the rest of the 1,000 for scanned books
+BOOKS_PER_RUN = int(os.environ.get("GIK_SEED_BOOKS_MAX", "40"))  # upper cap per run; the real budget is computed below
+# Google Books allows 1,000 calls a day (resets at midnight Pacific). Use all of it: keep BOOKS_RESERVE for scanned books
+# (the lookup job asks those first), spread the rest of the day's allowance evenly over the runs left before the reset.
+BOOKS_DAILY = int(os.environ.get("GIK_BOOKS_DAILY", "960"))
+BOOKS_RESERVE = int(os.environ.get("GIK_BOOKS_RESERVE", "120"))
 PAGES = int(os.environ.get("GIK_SEED_PAGES", "5"))   # Kroger returns up to 50 products per page (start max 250)
 REDO_DAYS = 30
 # Kroger store departments that are groceries; skipped unless the term itself is a food term.
@@ -233,8 +237,25 @@ def scanned_book_queries(conn):
     return out
 
 
+def books_calls_today(conn):
+    """Google Books calls since the last quota reset (midnight Pacific = 08:00 UTC): ISBN lookups + seed pages."""
+    since = "datetime(date('now', '-8 hours'), '+8 hours')"
+    isbn = conn.execute(f"SELECT COUNT(*) FROM lookup_log WHERE source='googlebooks' AND requested_at >= {since}").fetchone()[0]
+    seeds = conn.execute(f"SELECT COUNT(*) FROM lookup_log WHERE source='gbooks-seed' AND requested_at >= {since}").fetchone()[0]
+    return isbn + seeds * BOOK_PAGES
+
+
+def books_budget(conn, now=None):
+    """Seed queries this run may use: what is left of today's quota after the scanned-book reserve, spread over the
+    hourly runs left before the reset, so the full 1,000 is used every day without starving scanned books."""
+    now = now or datetime.utcnow()
+    hours_left = (8 - now.hour) % 24 or 24
+    left = BOOKS_DAILY - BOOKS_RESERVE - books_calls_today(conn)
+    return max(0, min(BOOKS_PER_RUN, left // max(1, hours_left) // BOOK_PAGES))
+
+
 def seed_books(conn, gik, budget=None):
-    budget = BOOKS_PER_RUN if budget is None else budget
+    budget = books_budget(conn) if budget is None else budget
     key = gik.google_books_key()
     if not key or budget <= 0:
         return
@@ -251,6 +272,10 @@ def seed_books(conn, gik, budget=None):
                 {"q": q, "printType": "books", "langRestrict": "en", "country": "US", "maxResults": 40,
                  "startIndex": page * 40, "key": key}))
             st, body = gik.http_get(url)
+            if st in (403, 429):  # daily quota used up: stop seeding until it resets, and do not mark this query done
+                print(f"Book seed: Google Books quota reached ({st}); stopping until the daily reset")
+                conn.commit()
+                return
             if st != 200:
                 break
             items = (json.loads(body) or {}).get("items") or []

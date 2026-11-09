@@ -286,3 +286,15 @@ def test_model_number_from_saved_upcitemdb_answer(conn):
                                  "title": "GE 60-Watt EQ A15 Daylight 2-Pack Model 46772"}], "serper")
     r = conn.execute("SELECT match_level, match_basis FROM offers WHERE gtin=?", (g,)).fetchone()
     assert r["match_level"] == "confirmed" and "46772" in r["match_basis"]
+
+
+def test_book_catch_up_spends_the_rest_of_today_now(conn, monkeypatch):
+    from datetime import datetime as dt
+    monkeypatch.setattr(cs, "BOOKS_PER_RUN", 400)
+    assert cs.books_budget(conn, dt(2026, 11, 9, 13, 0)) == 8          # normal: (960-120)/19 hours/5 pages
+    monkeypatch.setenv("GIK_BOOKS_CATCHUP", "true")
+    assert cs.books_budget(conn, dt(2026, 11, 9, 13, 0)) == 168        # catch-up: all of (960-120)/5 now
+    for i in range(170):
+        conn.execute("INSERT INTO lookup_log (gtin, source, http_status) VALUES (?, 'gbooks-seed', 200)", (f"SEED:gbooks:c{i}",))
+    conn.commit()
+    assert cs.books_budget(conn, dt(2026, 11, 9, 13, 0)) == 0          # never past the reserve for scanned books

@@ -20,7 +20,9 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -63,13 +65,21 @@ def brand_terms(conn, terms):
     """Expansion: every brand that showed up 3+ times in the seeded catalog becomes its own search term, in the
     category where it appeared most, so the catalog keeps widening after the starter list is done."""
     have = {t.lower() for _, t in terms}
-    rows = conn.execute("""SELECT brand, category, COUNT(*) n FROM item_master
+    # learned from scans first: any brand TEP has actually received (1 scan is enough), then brands seen 3+ times
+    # in the seeded catalog. Books are left to the book queries.
+    rows = conn.execute("""SELECT im.brand, im.category, 1000 + COUNT(*) n FROM item_master im
+                           WHERE im.gtin IN (SELECT gtin FROM receipts) AND im.brand IS NOT NULL AND im.brand <> ''
+                             AND im.category IS NOT NULL AND im.category <> 'Books & media' AND im.gtin NOT LIKE 'G-%'
+                           GROUP BY im.brand, im.category
+                           UNION ALL
+                           SELECT brand, category, COUNT(*) n FROM item_master
                            WHERE lookup_source='kroger-seed' AND brand IS NOT NULL AND brand <> '' AND category IS NOT NULL
-                           GROUP BY brand, category HAVING n >= 3 ORDER BY n DESC""").fetchall()
+                           GROUP BY brand, category HAVING COUNT(*) >= 3
+                           ORDER BY n DESC""").fetchall()
     out, seen = [], set()
     for r in rows:
         b = r["brand"].strip()
-        if b.lower() in have or b.lower() in seen or b.lower() == "kroger":
+        if b.lower() in have or b.lower() in seen or b.lower() in ("kroger", "unknown", "generic") or len(b) < 3:
             continue
         seen.add(b.lower())
         out.append((r["category"], b))
@@ -151,7 +161,7 @@ FILL_PER_RUN = int(os.environ.get("GIK_FILL", "400"))   # eBay allows 5,000/day;
 def run(conn, budget, gik):
     """Books, then Kroger terms, then price fill. Never raises: a seed problem must not stop the lookup sync."""
     for step in (lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
-                 lambda: fill_prices(conn, gik, FILL_PER_RUN)):
+                 lambda: fill_prices(conn, gik, FILL_PER_RUN), lambda: three_places(conn, gik, SERPER_PER_RUN)):
         try:
             step()
         except Exception as e:
@@ -208,6 +218,20 @@ def load_book_queries(path=None):
         return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
 
 
+def scanned_book_queries(conn):
+    """Learn from scans: every author and publisher of a book TEP actually received becomes a Google Books query."""
+    out, seen = [], set()
+    for r in conn.execute("""SELECT name, brand FROM item_master WHERE (gtin LIKE '0978%' OR gtin LIKE '0979%')
+                             AND gtin IN (SELECT gtin FROM receipts) ORDER BY updated_at DESC""").fetchall():
+        author = (r["name"] or "").split(" - by ")[1].split(",")[0].strip() if " - by " in (r["name"] or "") else ""
+        for q in ((f'inauthor:"{author}"' if len(author) > 3 else None),
+                  (f'inpublisher:"{r["brand"].strip()}"' if r["brand"] and len(r["brand"].strip()) > 3 else None)):
+            if q and q.lower() not in seen:
+                seen.add(q.lower())
+                out.append(q)
+    return out
+
+
 def seed_books(conn, gik, budget=None):
     budget = BOOKS_PER_RUN if budget is None else budget
     key = gik.google_books_key()
@@ -215,7 +239,7 @@ def seed_books(conn, gik, budget=None):
         return
     done = {r[0] for r in conn.execute(
         "SELECT gtin FROM lookup_log WHERE source='gbooks-seed' AND requested_at > datetime('now', ?)", (f"-{REDO_DAYS} days",))}
-    due = [q for q in load_book_queries() if f"SEED:gbooks:{q.lower()}" not in done][:budget]
+    due = [q for q in load_book_queries() + scanned_book_queries(conn) if f"SEED:gbooks:{q.lower()}" not in done][:budget]
     now = datetime.now().isoformat(timespec="seconds")
     tot = 0
     for q in due:
@@ -285,3 +309,87 @@ def fill_prices(conn, gik, budget):
         conn.commit()
     if rows:
         print(f"Price fill: tried {len(rows)} unpriced catalog items, priced {priced}")
+
+
+# ---------------------------------------------------------------- three places: Google Shopping via Serper
+
+SERPER_PER_RUN = int(os.environ.get("GIK_SERPER_PER_RUN", "20"))   # 2 credits each; free tier is 2,500 credits
+SERPER_URL = "https://google.serper.dev/shopping"
+USED_WORDS = re.compile(r"\b(used|refurbished|renewed|pre-?owned|open[- ]box|like new)\b", re.I)
+
+
+def _words(text):
+    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(w) > 2 and w not in ("the", "and", "for", "with")}
+
+
+def same_item(name, title):
+    """A shopping result counts only when most of our item's words are in its title (guards against look-alikes)."""
+    a, b = _words(name.split(" - by ")[0]), _words(title)
+    return bool(a) and len(a & b) / len(a) >= 0.6
+
+
+def parse_price(text):
+    m = re.search(r"\$\s?([\d,]+(?:\.\d{1,2})?)", text or "")
+    return float(m.group(1).replace(",", "")) if m else None
+
+
+def serper_offers(results, name):
+    """Google Shopping results -> at most one new-condition offer per merchant that matches the item."""
+    out, seen = [], set()
+    for r in results or []:
+        title, merchant, price = r.get("title") or "", (r.get("source") or "").strip(), parse_price(r.get("price"))
+        if not merchant or not price or USED_WORDS.search(title) or not same_item(name, title) or merchant.lower() in seen:
+            continue
+        seen.add(merchant.lower())
+        out.append({"merchant": merchant, "price": price, "link": r.get("link") or "", "condition": "New", "title": title,
+                    "updated_t": int(time.time())})
+    return out
+
+
+def _serper_post(key, q):
+    req = urllib.request.Request(SERPER_URL, data=json.dumps({"q": q, "gl": "us", "hl": "en"}).encode(),
+                                 headers={"X-API-KEY": key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, json.dumps({"error": str(e)})
+
+
+def three_places(conn, gik, budget, post=None):
+    """For the items worth the most (units scanned x value), find more merchants until each has three with proof.
+    Adds offers only; the value itself changes only when a reviewer approves it."""
+    key = os.environ.get("SERPER_API_KEY")
+    if not key or budget <= 0:
+        return
+    post = post or _serper_post
+    rows = conn.execute("""SELECT im.gtin, im.name, im.brand, COALESCE(SUM(r.qty), 0) * COALESCE(im.fmv_unit, 0) AS impact
+                           FROM item_master im LEFT JOIN receipts r ON r.gtin = im.gtin
+                           WHERE im.name IS NOT NULL AND im.gtin NOT LIKE 'G-%' AND im.fmv_status <> 'verified'
+                             AND im.gtin NOT IN (SELECT gtin FROM lookup_log WHERE source='serper'
+                                                 AND requested_at > datetime('now','-60 days'))
+                             AND (SELECT COUNT(DISTINCT lower(o.merchant)) FROM offers o WHERE o.gtin = im.gtin AND o.usable = 1
+                                  AND o.url IS NOT NULL AND o.url <> '') < 3
+                           GROUP BY im.gtin ORDER BY impact DESC, COALESCE(im.fmv_unit, 0) DESC LIMIT ?""", (budget,)).fetchall()
+    added = asked = 0
+    for r in rows:
+        name = r["name"]
+        q = name if not r["brand"] or r["brand"].lower() in name.lower() else f"{r['brand']} {name}"
+        st, body = post(key, q.split(" - by ")[0][:120])
+        asked += 1
+        conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)",
+                     (r["gtin"], "serper", st, (body or "")[:20000]))
+        conn.commit()
+        if st in (401, 402, 403, 429):  # bad key, out of credits or throttled: stop for this run, try next run
+            print(f"Three places: Serper answered {st}; stopping for this run")
+            break
+        if st != 200:
+            continue
+        offers = serper_offers((json.loads(body) or {}).get("shopping"), name)
+        gik.record_offers(conn, r["gtin"], offers, "serper")
+        conn.commit()
+        added += len(offers)
+    if asked:
+        print(f"Three places: searched {asked} high-value items, added {added} merchant prices")

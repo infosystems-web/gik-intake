@@ -1,0 +1,43 @@
+# Open Library subjects for the reference catalog (one per line). Every English edition with an ISBN-13 is loaded.
+Juvenile fiction
+Juvenile nonfiction
+Juvenile literature
+Picture books
+Picture books for children
+Board books
+Stories in rhyme
+Readers (Primary)
+Early readers
+Chapter books
+Young adult fiction
+Graphic novels
+Fairy tales
+Animals, juvenile literature
+Science, juvenile literature
+History, juvenile literature
+Biography, juvenile literature
+Mathematics, juvenile literature
+Poetry, juvenile
+Children's poetry
+Spanish language materials
+Alphabet books
+Counting
+Concept books
+Bedtime
+Friendship
+Family, juvenile fiction
+School stories
+Holidays
+Activity books
+Coloring books
+Workbooks
+Phonics
+Reading (Elementary)
+Mathematics, study and teaching (elementary)
+Education, elementary
+Teaching
+Classroom management
+Special education
+Study guides
+Dictionaries, juvenile
+Atlases, juvenile

@@ -298,3 +298,13 @@ def test_book_catch_up_spends_the_rest_of_today_now(conn, monkeypatch):
         conn.execute("INSERT INTO lookup_log (gtin, source, http_status) VALUES (?, 'gbooks-seed', 200)", (f"SEED:gbooks:c{i}",))
     conn.commit()
     assert cs.books_budget(conn, dt(2026, 11, 9, 13, 0)) == 0          # never past the reserve for scanned books
+
+
+def test_book_page_count_is_kept_for_sorting(conn):
+    b = gik.parse_googlebooks({"items": [{"volumeInfo": {"title": "The Very Hungry Caterpillar", "authors": ["Eric Carle"],
+                                                          "categories": ["Juvenile Fiction / Animals / Insects"], "pageCount": 26}}]})
+    assert b["page_count"] == 26
+    gik.upsert_book(conn, "09780399226908", b, "2026-11-09T10:00:00", "googlebooks")
+    gik.upsert_book(conn, "09780399226908", dict(b, page_count=None), "2026-11-09T11:00:00", "googlebooks")  # a later answer without pages
+    assert conn.execute("SELECT page_count FROM item_master WHERE gtin='09780399226908'").fetchone()[0] == 26
+    assert gik.parse_googlebooks({"items": [{"volumeInfo": {"title": "X", "pageCount": "lots"}}]})["page_count"] is None

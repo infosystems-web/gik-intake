@@ -161,7 +161,8 @@ FILL_PER_RUN = int(os.environ.get("GIK_FILL", "400"))   # eBay allows 5,000/day;
 def run(conn, budget, gik):
     """Books, then Kroger terms, then price fill. Never raises: a seed problem must not stop the lookup sync."""
     for step in (lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
-                 lambda: fill_prices(conn, gik, FILL_PER_RUN), lambda: three_places(conn, gik, SERPER_PER_RUN)):
+                 lambda: fill_prices(conn, gik, FILL_PER_RUN), lambda: evidence_fill(conn, gik, EVIDENCE_PER_RUN),
+                 lambda: three_places(conn, gik, SERPER_PER_RUN)):
         try:
             step()
         except Exception as e:
@@ -365,13 +366,12 @@ def three_places(conn, gik, budget, post=None):
     if not key or budget <= 0:
         return
     post = post or _serper_post
-    rows = conn.execute("""SELECT im.gtin, im.name, im.brand, COALESCE(SUM(r.qty), 0) * COALESCE(im.fmv_unit, 0) AS impact
+    rows = conn.execute(f"""SELECT im.gtin, im.name, im.brand, COALESCE(SUM(r.qty), 0) * COALESCE(im.fmv_unit, 0) AS impact
                            FROM item_master im LEFT JOIN receipts r ON r.gtin = im.gtin
                            WHERE im.name IS NOT NULL AND im.gtin NOT LIKE 'G-%' AND im.fmv_status <> 'verified'
                              AND im.gtin NOT IN (SELECT gtin FROM lookup_log WHERE source='serper'
                                                  AND requested_at > datetime('now','-60 days'))
-                             AND (SELECT COUNT(DISTINCT lower(o.merchant)) FROM offers o WHERE o.gtin = im.gtin AND o.usable = 1
-                                  AND o.url IS NOT NULL AND o.url <> '') < 3
+                             AND (SELECT {MERCHANT_SQL} FROM offers o WHERE o.gtin = im.gtin AND {PLACE_FILTER}) < 3
                            GROUP BY im.gtin ORDER BY impact DESC, COALESCE(im.fmv_unit, 0) DESC LIMIT ?""", (budget,)).fetchall()
     added = asked = 0
     for r in rows:
@@ -393,3 +393,61 @@ def three_places(conn, gik, budget, post=None):
         added += len(offers)
     if asked:
         print(f"Three places: searched {asked} high-value items, added {added} merchant prices")
+
+
+# ---------------------------------------------------------------- more places for items we already have (free sources)
+
+EVIDENCE_PER_RUN = int(os.environ.get("GIK_EVIDENCE", "200"))
+EVIDENCE_REASK_DAYS = 30
+# One merchant per store: every eBay seller counts as "eBay"; an MSRP or a value guide is not a store.
+MERCHANT_SQL = """COUNT(DISTINCT CASE WHEN lower(o.merchant) LIKE 'ebay%' THEN 'ebay' ELSE lower(o.merchant) END)"""
+PLACE_FILTER = """o.usable = 1 AND o.url IS NOT NULL AND o.url <> '' AND lower(o.merchant) NOT LIKE 'msrp%'
+                  AND lower(o.merchant) NOT LIKE '%value guide%'"""
+
+
+def evidence_fill(conn, gik, budget):
+    """Items that already have a value but fewer than 3 stores with proof: ask the free sources that have not been asked
+    about that barcode in 30 days (Kroger, Walmart and Best Buy when keys exist, Open Prices, eBay). Scanned items first,
+    most units first, then the highest values. Adds offers only; a value changes only when a reviewer approves it."""
+    if budget <= 0:
+        return
+    try:
+        import extra_sources as es
+        sources = list(getattr(es, "PRICE_SOURCES", {}).items())
+    except Exception:
+        sources = []
+    sources += [("openprices", lambda g, h: gik.fetch_openprices(g) + ({},)),
+                ("ebay", lambda g, h: (gik.fetch_ebay(g) + ({},)) if gik.ebay_keys()[0] else (None, "", [], {}))]
+    rows = conn.execute(f"""SELECT im.gtin, COALESCE((SELECT SUM(qty) FROM receipts r WHERE r.gtin = im.gtin), 0) AS units
+                            FROM item_master im
+                            WHERE im.gtin NOT LIKE 'G-%' AND im.name IS NOT NULL
+                              AND (SELECT {MERCHANT_SQL} FROM offers o WHERE o.gtin = im.gtin AND {PLACE_FILTER}) < 3
+                            ORDER BY units DESC, COALESCE(im.fmv_unit, 0) DESC LIMIT ?""", (budget * 3,)).fetchall()
+    asked = added = done = 0
+    for r in rows:
+        if done >= budget:
+            break
+        g, did = r["gtin"], False
+        for name, fetch in sources:
+            if conn.execute("SELECT 1 FROM lookup_log WHERE gtin=? AND source=? AND requested_at > datetime('now', ?)",
+                            (g, name, f"-{EVIDENCE_REASK_DAYS} days")).fetchone():
+                continue
+            try:
+                st, body, offers, _ = fetch(g, gik.http_get)
+            except Exception as e:
+                st, body, offers = 0, json.dumps({"error": str(e)}), []
+            if st is None:  # source not configured
+                continue
+            did = True
+            asked += 1
+            conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)",
+                         (g, name, st, (body or "")[:2000]))
+            if offers:
+                gik.record_offers(conn, g, offers, name)
+                added += len(offers)
+            conn.commit()
+            if conn.execute(f"SELECT {MERCHANT_SQL} FROM offers o WHERE o.gtin = ? AND {PLACE_FILTER}", (g,)).fetchone()[0] >= 3:
+                break  # three places reached: save the remaining calls
+        done += 1 if did else 0
+    if asked:
+        print(f"More places: checked {done} items with fewer than 3 stores, {asked} free lookups, {added} new store prices")

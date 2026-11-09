@@ -230,3 +230,59 @@ def test_book_budget_uses_the_daily_quota_and_keeps_a_reserve(conn):
         conn.execute("INSERT INTO lookup_log (gtin, source, http_status) VALUES (?, 'gbooks-seed', 200)", (f"SEED:gbooks:q{i}",))
     conn.commit()
     assert cs.books_budget(conn, dt(2026, 11, 9, 20, 0)) == 0
+
+
+# ---------------------------------------------------------------- is the listing the same item? (confirmed / probable / rejected)
+
+def test_model_numbers_are_strict():
+    assert gik.clean_model("LED60A15/DL") == "LED60A15DL" and gik.clean_model("46772") == "46772"
+    for weak in ("60W", "A15", "2019", "N/A", "100W", "12OZ", "ABCD", "", None):
+        assert gik.clean_model(weak) is None, weak
+    assert gik.model_in_text("LED60A15/DL", "GE LED60A15-DL bulb")
+    assert gik.model_in_text("46772", "GE 46772 Refresh 2pk") and not gik.model_in_text("46772", "item 467721")
+    assert gik.barcode_in_text("00043168515023", "UPC 043168515023") and not gik.barcode_in_text("00043168515023", "1043168515023")
+
+
+def test_match_levels():
+    m = gik.match_offer
+    name = "GE LED+ Dusk to Dawn Bulbs 2pk"
+    assert m("00043168515023", "serper", "GE Dusk to Dawn 2 Pack", name)[0] == "probable"          # name only
+    assert m("00043168515023", "serper", "GE 93121491 Dusk to Dawn, 2 pack", name, model="93121491")[0] == "confirmed"
+    assert m("00043168515023", "serper", "GE bulbs 043168515023", name)[0] == "confirmed"             # barcode in title
+    assert m("00043168515023", "kroger", "GE Dusk to Dawn, 2 ct", name)[0] == "confirmed"             # found by the UPC
+    assert m("00043168515023", "upcitemdb", "Lot of 8 GE LED bulbs", name)[0] == "rejected"           # a lot is not one pack
+    assert m("00036000291452", "upcitemdb", "Kleenex 3 pack, 160 count", "Kleenex Tissue 160 ct")[0] == "rejected"
+    assert m("00036000291452", "upcitemdb", "Kleenex 160 count", "Kleenex Tissue")[0] == "confirmed"
+    assert m("00036000291452", "serper", "anything", "x", level="confirmed", basis="Reviewer")[0] == "confirmed"
+
+
+def test_name_only_prices_do_not_count_as_places(conn, monkeypatch):
+    g = "00036000291452"
+    conn.execute("INSERT INTO item_master (gtin, name, fmv_unit) VALUES (?, 'Kleenex Facial Tissue 160 ct', 2.49)", (g,))
+    conn.commit()
+    gik.record_offers(conn, g, [{"merchant": m, "price": 2.5, "link": f"https://{m}", "condition": "New",
+                                 "title": "Kleenex Facial Tissue 160 ct"} for m in ("Walmart", "Target", "Meijer")], "serper")
+    gik.record_offers(conn, g, [{"merchant": "Amazon", "price": 7.0, "link": "https://a", "condition": "New",
+                                 "title": "Kleenex Facial Tissue 160 ct, 3 pack"}], "serper")
+    rows = {r["merchant"]: (r["match_level"], r["usable"]) for r in conn.execute("SELECT * FROM offers WHERE gtin=?", (g,))}
+    assert rows == {"Walmart": ("probable", 1), "Target": ("probable", 1), "Meijer": ("probable", 1), "Amazon": ("rejected", 0)}
+    places = conn.execute(f"SELECT {cs.MERCHANT_SQL} FROM offers o WHERE o.gtin=? AND {cs.PLACE_FILTER}", (g,)).fetchone()[0]
+    assert places == 0                                   # three name matches are not three places
+    assert gik.top_offers(conn, g) == []                 # and never reach the values export
+
+
+def test_model_number_from_saved_upcitemdb_answer(conn):
+    g = "00043168516662"
+    conn.execute("INSERT INTO item_master (gtin, name) VALUES (?, 'GE Refresh A15 2pk')", (g,))
+    conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?, 'upcitemdb', 200, ?)",
+                 (g, json.dumps({"items": [{"title": "GE", "model": "46772"}]})))
+    conn.execute("INSERT INTO item_master (gtin, name) VALUES ('00036000291452', 'Kleenex')")
+    conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES ('00036000291452', 'upcitemdb', 200, ?)",
+                 (json.dumps({"items": [{"model": "N/A"}]}),))
+    conn.commit()
+    assert gik.fill_models(conn) == 1
+    assert conn.execute("SELECT model_number FROM item_master WHERE gtin=?", (g,)).fetchone()[0] == "46772"
+    gik.record_offers(conn, g, [{"merchant": "Lowe's", "price": 10.98, "link": "https://l", "condition": "New",
+                                 "title": "GE 60-Watt EQ A15 Daylight 2-Pack Model 46772"}], "serper")
+    r = conn.execute("SELECT match_level, match_basis FROM offers WHERE gtin=?", (g,)).fetchone()
+    assert r["match_level"] == "confirmed" and "46772" in r["match_basis"]

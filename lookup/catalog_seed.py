@@ -295,7 +295,7 @@ def fill_prices(conn, gik, budget):
     rows = conn.execute("""SELECT gtin FROM item_master
                            WHERE fmv_unit IS NULL AND fmv_status <> 'verified' AND lookup_source IN ('kroger-seed','gbooks-seed')
                              AND gtin NOT IN (SELECT gtin FROM lookup_log WHERE source='ebay' AND requested_at > datetime('now','-7 days'))
-                           ORDER BY updated_at LIMIT ?""", (budget,)).fetchall()
+                           ORDER BY (gtin IN (SELECT gtin FROM receipts)) DESC, updated_at LIMIT ?""", (budget,)).fetchall()
     now = datetime.now().isoformat(timespec="seconds")
     priced = 0
     for r in rows:

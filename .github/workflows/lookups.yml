@@ -1,9 +1,8 @@
 # Fills in name, price and proof links for every scanned barcode in the Supabase gik schema.
-# Runs every hour (same daily totals as before, split into smaller runs so new scans are filled within an hour) and on demand (Actions tab > GIK lookups > Run workflow). Free for public repos.
+# Started every hour at :17 by Supabase (pg_cron job gik-lookups-hourly -> function gik.dispatch_lookups, token in Vault),
+# because GitHub's own schedule skipped most runs. Also on demand (Actions tab > GIK lookups > Run workflow).
 name: GIK lookups
 on:
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
 concurrency: gik-lookups
 jobs:

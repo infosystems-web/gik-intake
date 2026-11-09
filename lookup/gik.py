@@ -2091,7 +2091,8 @@ def cloud_sync(conn, pg, args):
     changed = [tuple(r) for r in conn.execute(f"SELECT gtin,{','.join(LOOKUP_COLS)} FROM item_master") if before.get(r["gtin"]) != tuple(r)]
     new_offers = conn.execute("SELECT * FROM offers WHERE offer_id > ?", (max_offer,)).fetchall()
     new_logs = conn.execute("SELECT * FROM lookup_log WHERE log_id > ?", (max_log,)).fetchall()
-    try:
+    for attempt in range(1, 4):  # a deadlock with another writer (e.g. maintenance) is retried, never lost
+      try:
         with pg.cursor() as cur:
             # only the lookup columns of changed barcodes; verified rows in the cloud are left alone
             cols = ["gtin"] + LOOKUP_COLS
@@ -2110,11 +2111,16 @@ def cloud_sync(conn, pg, args):
             n_log = _push_rows(cur, pg, "lookup_log", l_cols, log_rows) if new_logs else 0
         pg.commit()
         print(f"\nSynced to cloud: {len(changed)} barcodes updated, {n_off} new prices, {n_log} lookup records.")
-    except Exception as e:
+        break
+      except Exception as e:
         pg.rollback()
-        sys.exit(f"\nSync push failed, nothing changed in the cloud: {e}")
-    finally:
+        if getattr(e, "pgcode", None) in ("40P01", "40001") and attempt < 3:  # deadlock / serialization: wait, retry
+            print(f"\nSync push hit a lock conflict (attempt {attempt}); retrying in {20 * attempt}s")
+            time.sleep(20 * attempt)
+            continue
         pg.close()
+        sys.exit(f"\nSync push failed, nothing changed in the cloud: {e}")
+    pg.close()
 
 
 # ---------------------------------------------------------------- cli

@@ -36,7 +36,6 @@ jobs:
           WALMART_PRIVATE_KEY: ${{ secrets.WALMART_PRIVATE_KEY }}
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
           # per-run budgets sized for 24 runs a day, inside each free daily limit
-          GIK_SEED_BOOKS: "2"
           GIK_FILL: "150"
           GIK_EVIDENCE: "75"
           GIK_SERPER_PER_RUN: "7"

@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TERMS_FILE = os.path.join(HERE, "catalog_terms.txt")
 BOOKS_FILE = os.path.join(HERE, "catalog_books.txt")
 BOOK_PAGES = int(os.environ.get("GIK_SEED_BOOK_PAGES", "5"))  # Google Books returns up to 40 per page
-BOOKS_PER_RUN = int(os.environ.get("GIK_SEED_BOOKS", "15"))   # 15 queries x 5 pages = 75 calls/run, ~600/day of 1,000
+BOOKS_PER_RUN = int(os.environ.get("GIK_SEED_BOOKS", "6"))    # 6 queries x 5 pages = 30 calls/run, ~240/day: leaves the rest of the 1,000 for scanned books
 PAGES = int(os.environ.get("GIK_SEED_PAGES", "5"))   # Kroger returns up to 50 products per page (start max 250)
 REDO_DAYS = 30
 # Kroger store departments that are groceries; skipped unless the term itself is a food term.

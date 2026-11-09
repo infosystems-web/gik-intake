@@ -1,9 +1,9 @@
 # Fills in name, price and proof links for every scanned barcode in the Supabase gik schema.
-# Runs every 3 hours and on demand (Actions tab > GIK lookups > Run workflow). Free for public repos.
+# Runs every hour (same daily totals as before, split into smaller runs so new scans are filled within an hour) and on demand (Actions tab > GIK lookups > Run workflow). Free for public repos.
 name: GIK lookups
 on:
   schedule:
-    - cron: "17 */3 * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 concurrency: gik-lookups
 jobs:
@@ -35,7 +35,12 @@ jobs:
           WALMART_CONSUMER_ID: ${{ secrets.WALMART_CONSUMER_ID }}
           WALMART_PRIVATE_KEY: ${{ secrets.WALMART_PRIVATE_KEY }}
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          # per-run budgets sized for 24 runs a day, inside each free daily limit
+          GIK_SEED_BOOKS: "2"
+          GIK_FILL: "150"
+          GIK_EVIDENCE: "75"
+          GIK_SERPER_PER_RUN: "7"
         run: |
           python gik.py init
-          python gik.py cloud sync --max 250 --seed 150
+          python gik.py cloud sync --max 250 --seed 50
           python bulk_products.py apply

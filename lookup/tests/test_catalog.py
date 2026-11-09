@@ -177,3 +177,28 @@ def test_lookup_result_when_open_prices_prices_an_item(conn, monkeypatch):
         {"merchant": "Store", "price": 3.5, "link": "http://x", "condition": "New", "title": "Thing", "updated_t": 0}]))
     res = gik.do_lookup(conn, "00043168425445", thorough=True)
     assert res["fmv"] == 3.5 and res["offers"] == 1
+
+
+# ---------------------------------------------------------------- efficiency: spend lookups where the dollars are
+
+def test_scanned_items_first_and_unscanned_preloads_skipped(conn):
+    conn.execute("INSERT INTO donors (name, type) VALUES ('d', 'other')")
+    conn.execute("INSERT INTO donations (donation_id, donor_id, received_date) VALUES ('D1', 1, '2026-11-01')")
+    conn.execute("INSERT INTO item_master (gtin) VALUES ('00036000291452'), ('00037000127864')")
+    conn.execute("INSERT INTO item_master (gtin, name, lookup_source) VALUES ('00071662005107', 'Crayons', 'kroger-seed')")
+    conn.execute("INSERT INTO receipts (donation_id, gtin, qty) VALUES ('D1','00036000291452',1), ('D1','00037000127864',9)")
+    conn.commit()
+    todo = gik.pending_lookups(conn)
+    assert todo[:2] == ["00037000127864", "00036000291452"]   # most units first
+    assert "00071662005107" not in todo                        # pre-loaded, never scanned: left to the free price fill
+
+
+def test_refresh_survives_trimmed_raw_text(conn):
+    conn.execute("INSERT INTO item_master (gtin) VALUES ('00036000291452')")
+    conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES ('00036000291452','kroger',200,NULL)")
+    conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES ('00036000291452','googlebooks',200,NULL)")
+    conn.commit()
+
+    class A:
+        mock = False
+    gik.cmd_refresh(A())

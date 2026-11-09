@@ -33,4 +33,4 @@ jobs:
           WALMART_PRIVATE_KEY: ${{ secrets.WALMART_PRIVATE_KEY }}
         run: |
           python gik.py init
-          python gik.py cloud sync --max 250
+          python gik.py cloud sync --max 250 --seed 150

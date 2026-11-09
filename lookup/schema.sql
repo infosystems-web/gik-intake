@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS item_master (
     offer_updated    TEXT,              -- date of the newest offer the lookup returned
     notes            TEXT,              -- flags for the reviewer (used listing, stale offers, pending lookup)
     ns_item_id       TEXT,              -- NetSuite item internal ID once created
+    model_number     TEXT,              -- manufacturer model number (from UPCitemdb); proves a store listing is this item
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );

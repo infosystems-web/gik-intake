@@ -260,9 +260,13 @@ def migrate(conn):
         return
     if not cols:
         return
-    for col, ddl in (("fmv_merchant", "TEXT"), ("notes", "TEXT"), ("offer_updated", "TEXT")):
+    for col, ddl in (("fmv_merchant", "TEXT"), ("notes", "TEXT"), ("offer_updated", "TEXT"), ("model_number", "TEXT")):
         if col not in cols:
             conn.execute(f"ALTER TABLE item_master ADD COLUMN {col} {ddl}")
+    ocols = {r["name"] for r in conn.execute("PRAGMA table_info(offers)")}
+    for col in ("match_level", "match_basis", "title"):
+        if ocols and col not in ocols:
+            conn.execute(f"ALTER TABLE offers ADD COLUMN {col} TEXT")
     rcols = {r["name"] for r in conn.execute("PRAGMA table_info(receipts)")}
     if "location" not in rcols:
         conn.execute("ALTER TABLE receipts ADD COLUMN location TEXT")  # rack/bin code, e.g. C03Z
@@ -284,6 +288,9 @@ def migrate(conn):
         offer_date TEXT,                  -- when the source last saw this price (may be old)
         seen_at    TEXT NOT NULL DEFAULT (datetime('now')),
         usable     INTEGER NOT NULL DEFAULT 1,   -- 0 = used/marketplace/reseller, kept for the record
+        match_level TEXT,                 -- confirmed | probable | rejected: is this listing the same item? (see match_offer)
+        match_basis TEXT,                 -- why: barcode lookup, model number, barcode in title, name only, reviewer
+        title      TEXT,                  -- the listing's own title, kept so a reviewer can judge the match
         UNIQUE (gtin, merchant, price, source))""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_offers_gtin ON offers(gtin)")
     # Non-barcoded goods: a searchable catalog of generic items with thrift-value ranges. Each gets a code
@@ -685,8 +692,92 @@ def clean_merchant(name: str) -> str:
     return n or "Unknown"
 
 
+# ---------------------------------------------------------------- is this listing the same item? (evidence rules)
+# confirmed = found by the barcode itself (store API, UPC database, eBay GTIN search, Open Prices, Kroger record),
+#             or the listing shows our barcode or our model number, or a reviewer said so.
+# probable  = found by name only (e.g. Google Shopping): shown to reviewers, never counted as proof until confirmed.
+# rejected  = the listing is a different pack size (a "lot of 8" price is not the price of one pack); kept, never used.
+BARCODE_SOURCES = {
+    "upcitemdb": "Store listing returned for this barcode (UPCitemdb)",
+    "upcdatabase": "MSRP returned for this barcode (UPC Database)",
+    "googlebooks": "ISBN lookup (Google Books)",
+    "openlibrary": "ISBN lookup (Open Library)",
+    "ebay": "eBay search by barcode (GTIN)",
+    "openprices": "Shelf price reported for this barcode (Open Prices)",
+    "kroger": "Kroger product record for this UPC",
+    "walmart": "Walmart product record for this UPC",
+    "bestbuy": "Best Buy product record for this UPC",
+    "manual": "Entered by a staff reviewer",
+    "sheet": "Entered by a staff reviewer (Google Sheet)",
+    "mock": "Test data",
+}
+NAME_SOURCES = {"serper": "Google Shopping"}   # found by searching the item name: needs proof of the same item
+
+PACK_RE = re.compile(r"\b(?:pack|pk|lot|set|case|box)\s*(?:of\s*)?(\d{1,4})\b"
+                     r"|\b(\d{1,4})\s*-?\s*(?:pk|packs?|ct|count|pcs?|pieces?)\b", re.I)
+LOT_RE = re.compile(r"\b(?:lot|case|bulk)\s*(?:of\s*)?\d{1,4}\b", re.I)   # "Lot of 8", "case of 12": many packs in one price
+_UNIT_MODEL = re.compile(r"\d+(?:W|V|A|OZ|FLOZ|CT|PK|MM|CM|IN|FT|LB|LBS|ML|L|G|KG|MAH|GB|TB|MB|HZ|K|PC|PCS|QT|GAL)", re.I)
+
+
+def pack_counts(text):
+    """Pack/count numbers stated in a name or title: '2pk', '3-Pack', 'Pack of 6', 'Lot 8', '24 ct' -> {2}, {3}, {6}, {8}, {24}."""
+    out = set()
+    for m in PACK_RE.finditer(text or ""):
+        n = int(m.group(1) or m.group(2))
+        if 0 < n < 10000:
+            out.add(n)
+    return out
+
+
+def clean_model(model):
+    """A model number we can trust for matching, upper-case letters/digits only; None when it is too short or generic
+    (a size like 60W or 12OZ, a year, a bare count)."""
+    m = re.sub(r"[^A-Z0-9]", "", (model or "").upper())
+    if len(m) < 4 or not re.search(r"\d", m) or (m.isdigit() and len(m) < 5) or _UNIT_MODEL.fullmatch(m):
+        return None
+    if re.fullmatch(r"(?:N/?A|NONE|NULL|UNKNOWN)\d*", m):
+        return None
+    return m
+
+
+def model_in_text(model, text):
+    """True when the model number appears in the text as its own token (separators like - / . or spaces allowed)."""
+    m = clean_model(model)
+    if not m or not text:
+        return False
+    pat = r"(?<![A-Z0-9])" + r"[\s\-/._]*".join(re.escape(ch) for ch in m) + r"(?![A-Z0-9])"
+    return re.search(pat, text.upper()) is not None
+
+
+def barcode_in_text(gtin14, text):
+    """True when the item's own barcode (with or without leading zeros) is printed in the text."""
+    core = (gtin14 or "").lstrip("0")
+    return len(core) >= 8 and re.search(r"(?<!\d)0*" + re.escape(core) + r"(?!\d)", text or "") is not None
+
+
+def match_offer(gtin14, source, title, item_name=None, model=None, level=None, basis=None):
+    """Decide (match_level, match_basis) for one offer. An explicit level (e.g. from a reviewer) is kept."""
+    if level in ("confirmed", "probable", "rejected"):
+        return level, basis or ""
+    mine, theirs, lots = pack_counts(item_name), pack_counts(title), pack_counts(" ".join(LOT_RE.findall(title or "")))
+    if (mine and theirs - mine) or (lots - mine):
+        shown = lambda c: "/".join(map(str, sorted(c))) or "not stated"
+        return "rejected", f"Pack size differs (item {shown(mine)} vs listing {shown(theirs | lots)}); a reviewer can override"
+    if source in NAME_SOURCES:
+        where = NAME_SOURCES[source]
+        if barcode_in_text(gtin14, title):
+            return "confirmed", f"Barcode shown in the listing ({where})"
+        if model_in_text(model, title):
+            return "confirmed", f"Model number {clean_model(model)} shown in the listing ({where})"
+        return "probable", f"Name match only ({where}); needs a reviewer"
+    return "confirmed", BARCODE_SOURCES.get(source, f"Looked up by barcode ({source})")
+
+
 def record_offers(conn, gtin14: str, offers, source: str):
-    """Save every offer a lookup returned, flagged usable or not by the same rules pick_fmv applies."""
+    """Save every offer a lookup returned, flagged usable or not by the same rules pick_fmv applies, and with a
+    match level saying whether the listing is provably the same item (see match_offer)."""
+    item = conn.execute("SELECT name, model_number FROM item_master WHERE gtin=?", (gtin14,)).fetchone()
+    item_name, model = (item["name"], item["model_number"]) if item else (None, None)
     for o in offers or []:
         price = o.get("price")
         if price in (None, "", 0, "0"):
@@ -697,15 +788,43 @@ def record_offers(conn, gtin14: str, offers, source: str):
         else:
             usable = not ((source != "ebay" and SKIP_MERCHANTS.search(merchant_raw)) or USED_WORDS.search(o.get("title") or "")
                           or (o.get("condition") and o["condition"].lower() != "new"))
+        level, basis = match_offer(gtin14, source, o.get("title") or "", item_name, model, o.get("match_level"), o.get("match_basis"))
+        if level == "rejected":
+            usable = False
         ts = int(o.get("updated_t") or 0)
         offer_date = datetime.fromtimestamp(ts).date().isoformat() if ts else None
         try:
-            conn.execute("""INSERT OR IGNORE INTO offers (gtin, merchant, price, url, condition, source, offer_date, usable)
-                            VALUES (?,?,?,?,?,?,?,?)""",
+            conn.execute("""INSERT OR IGNORE INTO offers (gtin, merchant, price, url, condition, source, offer_date, usable,
+                                                          match_level, match_basis, title)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                          (gtin14, clean_merchant(merchant_raw), round(float(price), 2), o.get("link"), o.get("condition"),
-                          source, offer_date, 1 if usable else 0))
+                          source, offer_date, 1 if usable else 0, level, basis, (o.get("title") or "")[:300] or None))
         except (ValueError, sqlite3.Error):
             continue
+
+
+def fill_models(conn):
+    """Copy the manufacturer model number from saved UPCitemdb answers onto items that have none yet.
+    Free: re-reads lookups already made. Returns how many items got a model number."""
+    rows = conn.execute("""SELECT im.gtin, l.raw_response FROM item_master im
+                           JOIN lookup_log l ON l.gtin = im.gtin AND l.source = 'upcitemdb' AND l.http_status = 200
+                           WHERE im.model_number IS NULL AND l.raw_response IS NOT NULL
+                           ORDER BY l.requested_at DESC""").fetchall()
+    done = set()
+    for r in rows:
+        if r["gtin"] in done:
+            continue
+        try:
+            items = (json.loads(r["raw_response"]) or {}).get("items") or []
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            continue
+        model = next((clean_model(it.get("model")) for it in items if isinstance(it, dict) and clean_model(it.get("model"))), None)
+        if model:
+            conn.execute("UPDATE item_master SET model_number=? WHERE gtin=? AND model_number IS NULL",
+                         (model, r["gtin"]))
+            done.add(r["gtin"])
+    conn.commit()
+    return len(done)
 
 
 def pick_fmv(offers):
@@ -1726,7 +1845,7 @@ VALUES_COLUMNS = ["upc", "item", "brand", "category", "units_received", "value_u
 def top_offers(conn, gtin14: str, n=3):
     """Up to n usable offers, one per merchant, preferring confirmed-by-reviewer, then newest, then the big-box stores."""
     rows = conn.execute("""SELECT merchant, price, url, offer_date, source, seen_at FROM offers
-                           WHERE gtin=? AND usable=1 ORDER BY
+                           WHERE gtin=? AND usable=1 AND COALESCE(match_level, 'confirmed') = 'confirmed' ORDER BY
                              CASE WHEN source IN ('sheet','manual') THEN 0 ELSE 1 END,
                              CASE WHEN merchant IN ('Walmart','Target','Amazon') THEN 0 ELSE 1 END,
                              COALESCE(offer_date, '') DESC, price ASC""", (gtin14,)).fetchall()
@@ -2067,7 +2186,7 @@ def cmd_cloud(args):
 
 
 LOOKUP_COLS = ["name", "brand", "category", "raw_category", "fmv_unit", "fmv_basis", "fmv_source_url", "fmv_merchant",
-               "offer_updated", "fmv_captured_at", "fmv_status", "lookup_source", "notes", "updated_at"]
+               "offer_updated", "fmv_captured_at", "fmv_status", "lookup_source", "notes", "updated_at", "model_number"]
 
 
 def cloud_sync(conn, pg, args):

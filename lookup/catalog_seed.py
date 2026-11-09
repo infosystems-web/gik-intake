@@ -164,7 +164,8 @@ FILL_PER_RUN = int(os.environ.get("GIK_FILL", "400"))   # eBay allows 5,000/day;
 
 def run(conn, budget, gik):
     """Books, then Kroger terms, then price fill. Never raises: a seed problem must not stop the lookup sync."""
-    for step in (lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
+    for step in (lambda: print(f"Model numbers: {gik.fill_models(conn)} items got one from saved UPC lookups"),
+                 lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
                  lambda: fill_prices(conn, gik, FILL_PER_RUN), lambda: evidence_fill(conn, gik, EVIDENCE_PER_RUN),
                  lambda: three_places(conn, gik, SERPER_PER_RUN)):
         try:
@@ -426,8 +427,9 @@ EVIDENCE_PER_RUN = int(os.environ.get("GIK_EVIDENCE", "200"))
 EVIDENCE_REASK_DAYS = 30
 # One merchant per store: every eBay seller counts as "eBay"; an MSRP or a value guide is not a store.
 MERCHANT_SQL = """COUNT(DISTINCT CASE WHEN lower(o.merchant) LIKE 'ebay%' THEN 'ebay' ELSE lower(o.merchant) END)"""
+# Only listings proven to be this item count (match_level confirmed); name-only matches wait for a reviewer.
 PLACE_FILTER = """o.usable = 1 AND o.url IS NOT NULL AND o.url <> '' AND lower(o.merchant) NOT LIKE 'msrp%'
-                  AND lower(o.merchant) NOT LIKE '%value guide%'"""
+                  AND lower(o.merchant) NOT LIKE '%value guide%' AND COALESCE(o.match_level, 'confirmed') = 'confirmed'"""
 
 
 def evidence_fill(conn, gik, budget):

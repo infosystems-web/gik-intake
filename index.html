@@ -119,7 +119,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#fff8f3}
       <div><select id="catType"><option value="">All types</option><option>Product (UPC)</option><option>Book (ISBN)</option><option>No barcode</option></select></div></div>
     <div class="row" style="margin-top:8px">
       <div><select id="catOrigin"><option value="">Scanned + pre-loaded</option><option>Scanned</option><option>Pre-loaded</option><option>Looked up</option><option>No-barcode item</option></select></div>
-      <div><select id="catStatus"><option value="">Any status</option><option value="priced">Has a value</option><option value="noprice">No value yet</option><option value="unverified">Needs review</option><option value="verified">Verified</option><option value="three">Found in 3 places</option><option value="ready">Ready for NetSuite</option><option value="not_found">Not found</option></select></div>
+      <div><select id="catStatus"><option value="">Any status</option><option value="priced">Has a value</option><option value="noprice">No value yet</option><option value="unverified">Needs review</option><option value="verified">Verified</option><option value="three">Found in 3 places</option><option value="tocheck">Store matches to check</option><option value="ready">Ready for NetSuite</option><option value="not_found">Not found</option></select></div>
       <div><select id="catSource"><option value="">Any value source</option></select></div>
       <div><select id="catSort"><option value="created_at.desc">Newest first</option><option value="units_scanned.desc">Most scanned</option><option value="fmv_unit.desc">Highest value</option><option value="name.asc">Name A-Z</option><option value="category.asc">Category</option></select></div></div>
     <div style="overflow:auto;margin-top:8px"><table id="catTable"><thead><tr><th>Barcode</th><th>Item</th><th>Category</th><th>Value</th><th>Proof</th><th>Scanned</th><th>Status</th></tr></thead><tbody></tbody></table></div>
@@ -139,6 +139,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#fff8f3}
     <div class="row"><div><label>Category</label><select id="vCat"></select></div><div style="flex:0 0 140px"><label>Unit value ($)</label><input id="vFmv" type="number" step="0.01"></div><div style="flex:0 0 140px"><label>Basis</label><select id="vBasis"><option>retail</option><option>wholesale</option><option>appraised</option></select></div></div>
     <label>Store page URL that shows this price</label><input id="vUrl" placeholder="https://www.walmart.com/ip/…">
     <div class="row"><div><label>Merchant</label><input id="vMerchant" placeholder="Walmart"></div><div><label>Notes</label><input id="vNotes"></div></div>
+    <div id="vOffers" class="small" style="margin:8px 0"></div>
     <p><button class="btn" id="btnVerify">Mark verified</button> <button class="btn sec" id="btnVerifyCancel">Cancel</button></p>
   </div>
 </section>
@@ -457,6 +458,32 @@ function openVerify(r) {
   $("#verifyCard").classList.remove("hidden"); $("#vGtin").textContent = r.gtin; $("#vName").value = r.name || ""; $("#vBrand").value = r.brand || "";
   $("#vCat").value = r.category || "Uncategorized"; $("#vFmv").value = r.fmv_unit ?? ""; $("#vUrl").value = r.fmv_source_url || ""; $("#vMerchant").value = ""; $("#vNotes").value = r.notes || "";
   $("#vBasis").value = r.gtin.startsWith("G-") ? "appraised" : "retail"; $("#verifyCard").scrollIntoView({ behavior: "smooth" });
+  loadOfferChecks(r.gtin);
+}
+// Store listings for this barcode. Confirmed = proven the same item (barcode, model number or a reviewer); probable =
+// found by name only and not counted until a reviewer says "Same item"; rejected = different item or pack size.
+const MATCH_PILL = { confirmed: "ok", probable: "warn", rejected: "bad" };
+async function loadOfferChecks(gtin) {
+  const box = $("#vOffers"); box.innerHTML = "Loading store listings…";
+  const { data, error } = await sb.from("offers").select("offer_id, merchant, price, url, title, source, match_level, match_basis, usable").eq("gtin", gtin).order("match_level").order("price").limit(200);
+  if (error) { box.textContent = ""; return fail(error); }
+  const rows = (data || []).filter((o) => o.url && !/^msrp|value guide/i.test(o.merchant));
+  if ($("#vGtin").textContent !== gtin) return;
+  if (!rows.length) { box.innerHTML = '<span class="muted">No store listings saved for this item yet.</span>'; return; }
+  box.innerHTML = `<label>Store listings (only <b>confirmed</b> ones count as proof)</label><div style="overflow:auto"><table><thead><tr><th>Store</th><th>Price</th><th>Listing</th><th>Match</th><th></th></tr></thead><tbody>${rows.map((o) => `<tr>
+    <td>${esc(o.merchant)}</td><td>$${(+o.price).toFixed(2)}</td>
+    <td><a href="${esc(o.url)}" target="_blank" rel="noopener">${esc((o.title || "open page").slice(0, 70))}</a></td>
+    <td><span class="pill ${MATCH_PILL[o.match_level] || ""}">${esc(o.match_level || "confirmed")}</span><div class="muted">${esc(o.match_basis || "")}</div></td>
+    <td style="white-space:nowrap">${isStaff && o.match_level !== "confirmed" ? `<button class="btn sec small" style="padding:2px 8px" data-same="${o.offer_id}">Same item</button> ` : ""}${isStaff && o.match_level !== "rejected" ? `<button class="btn sec small" style="padding:2px 8px" data-notsame="${o.offer_id}">Not the same</button> ` : ""}${o.match_level === "confirmed" && o.usable ? `<button class="btn sec small" style="padding:2px 8px" data-use="${o.offer_id}">Use this price</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+  const decide = async (id, same) => {
+    const { error } = await sb.rpc("review_offer", { p_offer_id: +id, p_same: same });
+    if (error) return fail(error);
+    toast(same ? "Marked as the same item" : "Marked as a different item", "ok"); loadOfferChecks(gtin);
+  };
+  box.querySelectorAll("[data-same]").forEach((b) => (b.onclick = () => decide(b.dataset.same, true)));
+  box.querySelectorAll("[data-notsame]").forEach((b) => (b.onclick = () => decide(b.dataset.notsame, false)));
+  box.querySelectorAll("[data-use]").forEach((b) => (b.onclick = () => { const o = rows.find((x) => String(x.offer_id) === b.dataset.use);
+    $("#vFmv").value = (+o.price).toFixed(2); $("#vUrl").value = o.url; $("#vMerchant").value = o.merchant; }));
 }
 $("#btnVerifyCancel").onclick = () => $("#verifyCard").classList.add("hidden");
 $("#btnVerify").onclick = async () => {
@@ -488,7 +515,7 @@ function download(name, rows) { const blob = new Blob([rows.map((r) => r.map(csv
 const MERCHANT_RANK = (m, src) => (src === "manual" || src === "sheet" ? 0 : /walmart/i.test(m) ? 1 : /target/i.test(m) ? 2 : /amazon/i.test(m) ? 3 : 9);
 $("#btnCsv").onclick = async () => {
   if (!valuesCache.length) await loadValues();
-  const { data: offers, error } = await sb.from("offers").select("gtin, merchant, price, url, offer_date, source, condition").eq("usable", true).limit(50000);
+  const { data: offers, error } = await sb.from("offers").select("gtin, merchant, price, url, offer_date, source, condition").eq("usable", true).or("match_level.is.null,match_level.eq.confirmed").limit(50000);
   if (error) return fail(error);
   const byG = {}; for (const o of offers) (byG[o.gtin] ||= []).push(o);
   const head = ["code", "item", "brand", "category", "units_received", "value_used", "basis", "status", "merchant_1", "price_1", "url_1", "date_1", "merchant_2", "price_2", "url_2", "date_2", "merchant_3", "price_3", "url_3", "date_3"];

@@ -4,6 +4,11 @@
 name: GIK lookups
 on:
   workflow_dispatch:
+    inputs:
+      books_catchup:
+        description: "Book catch-up: use the rest of today's Google Books quota in this run"
+        type: boolean
+        default: false
 concurrency: gik-lookups
 jobs:
   lookups:
@@ -38,6 +43,8 @@ jobs:
           GIK_FILL: "150"
           GIK_EVIDENCE: "75"
           GIK_SERPER_PER_RUN: "7"
+          GIK_BOOKS_CATCHUP: ${{ inputs.books_catchup && 'true' || '' }}
+          GIK_SEED_BOOKS_MAX: ${{ inputs.books_catchup && '200' || '40' }}
         # The repo is public until it moves to a private nonprofit organization: the full log (item names, barcodes)
         # goes to a file on the runner only; the public log shows summary lines and errors, never items.
         run: |

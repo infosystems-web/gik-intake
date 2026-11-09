@@ -9,7 +9,7 @@ window.onCatalogView = (v) => {
   clearInterval(catTimer); catTimer = null;
   if (v === "catalog") { loadCatalog(); catTimer = setInterval(() => { if (!document.hidden) loadCatalog(true); }, 60000); }
 };
-const CAT_COLS = "gtin,upc,name,brand,category,fmv_unit,fmv_basis,fmv_status,fmv_source_url,fmv_merchant,fmv_captured_at,price_source,origin,code_type,units_scanned,last_scanned,netsuite_ready,ns_item_id,debit_account_id,debit_account_name,credit_account_id,credit_account_name,class_id,class_name,created_at";
+const CAT_COLS = "gtin,upc,name,brand,category,fmv_unit,fmv_basis,fmv_status,fmv_source_url,fmv_merchant,fmv_captured_at,price_source,origin,code_type,units_scanned,last_scanned,netsuite_ready,ns_item_id,debit_account_id,debit_account_name,credit_account_id,credit_account_name,class_id,class_name,created_at,merchants_with_proof";
 function catFilters(q) {
   const s = $("#catSearch").value.trim().replace(/[,()*%]/g, " ").trim();
   if (s) q = q.or(`name.ilike.*${s}*,brand.ilike.*${s}*,gtin.ilike.*${s}*,upc.ilike.*${s}*`);
@@ -19,6 +19,7 @@ function catFilters(q) {
   if (p) q = q.eq("price_source", p);
   if (t) q = q.eq("code_type", t);
   if (st === "ready") q = q.eq("netsuite_ready", true);
+  else if (st === "three") q = q.eq("three_places", true);
   else if (st === "priced") q = q.not("fmv_unit", "is", null);
   else if (st === "noprice") q = q.is("fmv_unit", null);
   else if (st) q = q.eq("fmv_status", st);
@@ -38,10 +39,12 @@ async function loadCatalog(quiet) {
   $("#catStats").innerHTML = [
     ["Items in catalog", num(s.items), `${num(s.products)} products &middot; ${num(s.books)} books &middot; ${num(s.no_barcode)} no-barcode`],
     ["Valued with proof", pct(s.with_proof, s.items), `${num(s.with_proof)} items have a store page`],
+    ["Found in 3 places", num(s.three_places), "items with proof from 3 stores"],
     ["Units scanned", num(s.units_scanned), `${num(s.scanned_items)} different items`],
     ["Est. value scanned", money(s.scanned_value_est), `${money(s.scanned_value_verified)} verified by staff`],
     ["Ready for NetSuite", num(s.netsuite_ready), `${num(s.verified)} verified &middot; ${num(s.items - s.verified)} to review`],
     ["Added last 24 hours", num(s.added_24h), `${num(s.added_7d)} in the last 7 days`],
+    ["Known barcodes", num(s.known_barcodes), "named before scanning" + (s.last_import ? " \u00b7 imported " + new Date(s.last_import).toLocaleDateString() : "")],
   ].map(([k, v, sub]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`).join("");
   $("#catUpdated").textContent = `Updated ${new Date().toLocaleTimeString()} · last lookup ${s.last_lookup ? new Date(s.last_lookup).toLocaleString() : "—"}`;
   const maxI = Math.max(1, ...cats.data.map((c) => c.items));
@@ -54,7 +57,7 @@ async function loadCatalog(quiet) {
 }
 async function loadCatalogTable(quiet) {
   const [col, dir] = $("#catSort").value.split(".");
-  let q = sb.from("v_catalog").select("gtin,upc,name,brand,category,fmv_unit,fmv_status,fmv_source_url,fmv_merchant,price_source,origin,code_type,units_scanned,netsuite_ready", { count: "exact" });
+  let q = sb.from("v_catalog").select("gtin,upc,name,brand,category,fmv_unit,fmv_status,fmv_source_url,fmv_merchant,price_source,origin,code_type,units_scanned,netsuite_ready,merchants_with_proof", { count: "exact" });
   q = catFilters(q).order(col, { ascending: dir === "asc", nullsFirst: false }).order("gtin").range(catPage * CAT_PAGE, catPage * CAT_PAGE + CAT_PAGE - 1);
   const { data, error, count } = await q;
   if (error) return quiet ? console.warn(error) : fail(error);
@@ -64,7 +67,7 @@ async function loadCatalogTable(quiet) {
   $("#catPrev").disabled = catPage === 0; $("#catNext").disabled = (catPage + 1) * CAT_PAGE >= total;
   $("#catTable tbody").innerHTML = data.map((r) => {
     const status = r.netsuite_ready ? '<span class="pill ok">Ready for NetSuite</span>' : r.fmv_status === "verified" ? '<span class="pill ok">Verified</span>' : r.fmv_status === "not_found" ? '<span class="pill bad">Not found</span>' : r.fmv_unit != null ? '<span class="pill warn">Needs review</span>' : '<span class="pill">No value yet</span>';
-    return `<tr><td class="small">${esc(r.upc)}<div class="muted">${esc(r.code_type)}</div></td><td>${esc(r.name || "(name not found yet)")}<div class="small muted">${esc(r.brand || "")}${r.brand ? " &middot; " : ""}${esc(r.origin)}</div></td><td class="small">${esc(r.category || "—")}</td><td>${r.fmv_unit != null ? "$" + (+r.fmv_unit).toFixed(2) : ""}<div class="small muted">${esc(r.price_source)}</div></td><td class="small">${r.fmv_source_url ? `<a href="${esc(r.fmv_source_url)}" target="_blank" rel="noopener">${esc((r.fmv_merchant || "store page").slice(0, 28))}</a>` : ""}</td><td>${r.units_scanned ? num(r.units_scanned) : ""}</td><td>${status}</td></tr>`;
+    return `<tr><td class="small">${esc(r.upc)}<div class="muted">${esc(r.code_type)}</div></td><td>${esc(r.name || "(name not found yet)")}<div class="small muted">${esc(r.brand || "")}${r.brand ? " &middot; " : ""}${esc(r.origin)}</div></td><td class="small">${esc(r.category || "—")}</td><td>${r.fmv_unit != null ? "$" + (+r.fmv_unit).toFixed(2) : ""}<div class="small muted">${esc(r.price_source)}</div></td><td class="small">${r.fmv_source_url ? `<a href="${esc(r.fmv_source_url)}" target="_blank" rel="noopener">${esc((r.fmv_merchant || "store page").slice(0, 28))}</a>` : ""}${r.merchants_with_proof ? '<div class="muted">' + r.merchants_with_proof + " of 3 stores</div>" : ""}</td><td>${r.units_scanned ? num(r.units_scanned) : ""}</td><td>${status}</td></tr>`;
   }).join("");
 }
 let catDeb = null;
@@ -88,8 +91,8 @@ $("#btnCatCsv").onclick = async () => {
   toast("Preparing the list…");
   try {
     const data = await fetchCatalog();
-    const rows = [["barcode_gtin", "upc_or_isbn", "type", "item", "brand", "category", "unit_value", "value_basis", "value_source", "proof_merchant", "proof_url", "value_date", "status", "ready_for_netsuite", "units_scanned", "last_scanned", "origin", "added"]];
-    for (const r of data) rows.push([r.gtin, r.upc, r.code_type, r.name, r.brand, r.category, r.fmv_unit, r.fmv_basis, r.price_source, r.fmv_merchant, r.fmv_source_url, (r.fmv_captured_at || "").slice(0, 10), r.fmv_status, r.netsuite_ready ? "yes" : "no", r.units_scanned, (r.last_scanned || "").slice(0, 10), r.origin, (r.created_at || "").slice(0, 10)]);
+    const rows = [["barcode_gtin", "upc_or_isbn", "type", "item", "brand", "category", "unit_value", "value_basis", "value_source", "proof_merchant", "proof_url", "value_date", "status", "ready_for_netsuite", "units_scanned", "last_scanned", "origin", "added", "stores_with_proof"]];
+    for (const r of data) rows.push([r.gtin, r.upc, r.code_type, r.name, r.brand, r.category, r.fmv_unit, r.fmv_basis, r.price_source, r.fmv_merchant, r.fmv_source_url, (r.fmv_captured_at || "").slice(0, 10), r.fmv_status, r.netsuite_ready ? "yes" : "no", r.units_scanned, (r.last_scanned || "").slice(0, 10), r.origin, (r.created_at || "").slice(0, 10), r.merchants_with_proof]);
     download(`gik_catalog_${today()}.csv`, rows); toast(`${num(data.length)} items downloaded`, "ok");
   } catch (e) { fail(e); }
 };

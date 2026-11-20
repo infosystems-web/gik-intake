@@ -120,7 +120,8 @@ def test_health_alerts_on_stall_and_dead_sources(conn):
     conn.commit()
     cs.health(conn)
     text = " ".join(cs.ALERTS)
-    assert "no new catalog items" in text and "serper" in text and "kroger" in text and "ebay" not in text
+    assert "no new catalog items" in text and "kroger" in text and "ebay" not in text
+    assert "serper" not in text   # turned off 11/20: its old errors must not set off the alarm
     assert cs.should_fail(datetime(2026, 11, 21, cs.ALERT_HOUR_UTC, 17))
     assert not cs.should_fail(datetime(2026, 11, 21, (cs.ALERT_HOUR_UTC + 1) % 24, 17))
     conn.execute("INSERT INTO item_master (gtin, name) VALUES ('00071662005107','new')")
@@ -138,3 +139,14 @@ def test_three_places_stops_on_serper_400_out_of_credits(conn, monkeypatch):
     calls = []
     cs.three_places(conn, gik, 10, post=lambda k, q: calls.append(q) or (400, '{"message":"Not enough credits"}'))
     assert len(calls) == 1
+
+
+def test_serper_is_off_by_default(conn, monkeypatch):
+    monkeypatch.setenv("SERPER_API_KEY", "k")
+    called = []
+    monkeypatch.setattr(cs, "_serper_post", lambda k, q: called.append(q) or (200, "{}"))
+    conn.execute("INSERT INTO item_master (gtin, name, fmv_unit) VALUES ('00071662005107', 'Item', 1.0)")
+    conn.commit()
+    assert cs.SERPER_ON is False
+    cs.run(conn, 0, gik)
+    assert called == []

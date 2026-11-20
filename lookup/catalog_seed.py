@@ -186,7 +186,7 @@ def run(conn, budget, gik):
     for step in (lambda: print(f"Model numbers: {gik.fill_models(conn)} items got one from saved UPC lookups"),
                  lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
                  lambda: fill_prices(conn, gik, FILL_PER_RUN), lambda: evidence_fill(conn, gik, EVIDENCE_PER_RUN),
-                 lambda: three_places(conn, gik, SERPER_PER_RUN), lambda: health(conn)):
+                 lambda: three_places(conn, gik, SERPER_PER_RUN if SERPER_ON else 0), lambda: health(conn)):
         try:
             step()
         except Exception as e:
@@ -425,6 +425,9 @@ def fill_prices(conn, gik, budget):
 # ---------------------------------------------------------------- three places: Google Shopping via Serper
 
 SERPER_PER_RUN = int(os.environ.get("GIK_SERPER_PER_RUN", "20"))   # 2 credits each; free tier is 2,500 credits
+# Off since 11/20/2026: the free credits ran out on 11/16 and TEP is not paying for it. To turn it back on, add
+# credits at serper.dev and set GIK_SERPER=on in the workflow. three_places() itself is unchanged and still tested.
+SERPER_ON = os.environ.get("GIK_SERPER", "off").lower() == "on"
 SERPER_URL = "https://google.serper.dev/shopping"
 USED_WORDS = re.compile(r"\b(used|refurbished|renewed|pre-?owned|open[- ]box|like new)\b", re.I)
 
@@ -571,8 +574,8 @@ def evidence_fill(conn, gik, budget):
 # its failed-run notice once a day until it is fixed.
 STALL_DAYS = int(os.environ.get("GIK_STALL_DAYS", "3"))
 ALERT_HOUR_UTC = int(os.environ.get("GIK_ALERT_HOUR_UTC", "13"))
-WATCHED = ("upcitemdb", "upcdatabase", "googlebooks", "kroger", "walmart", "bestbuy", "openprices", "ebay", "serper",
-           "kroger-seed", "gbooks-seed")
+WATCHED = ("upcitemdb", "upcdatabase", "googlebooks", "kroger", "walmart", "bestbuy", "openprices", "ebay",
+           "kroger-seed", "gbooks-seed") + (("serper",) if SERPER_ON else ())
 ALERTS = []
 
 

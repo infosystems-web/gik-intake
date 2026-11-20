@@ -42,17 +42,23 @@ FOOD_DEPTS = re.compile(r"produce|meat|seafood|dairy|bakery|deli|frozen|beverage
 
 
 def load_terms(path=TERMS_FILE):
-    terms = []
-    if not os.path.exists(path):
-        return terms
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "|" not in line:
-                continue
-            cat, term = (s.strip() for s in line.split("|", 1))
-            if cat and term:
-                terms.append((cat, term))
+    """catalog_terms.txt plus any catalog_terms_*.txt beside it (later lists are added as extra files)."""
+    terms, seen = [], set()
+    paths = [path]
+    if path == TERMS_FILE:
+        paths += sorted(os.path.join(HERE, f) for f in os.listdir(HERE) if f.startswith("catalog_terms_") and f.endswith(".txt"))
+    for p in paths:
+        if not os.path.exists(p):
+            continue
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "|" not in line:
+                    continue
+                cat, term = (s.strip() for s in line.split("|", 1))
+                if cat and term and term.lower() not in seen:
+                    seen.add(term.lower())
+                    terms.append((cat, term))
     return terms
 
 
@@ -78,7 +84,7 @@ def brand_terms(conn, terms):
                            UNION ALL
                            SELECT brand, category, COUNT(*) n FROM item_master
                            WHERE lookup_source='kroger-seed' AND brand IS NOT NULL AND brand <> '' AND category IS NOT NULL
-                           GROUP BY brand, category HAVING COUNT(*) >= 3
+                           GROUP BY brand, category HAVING COUNT(*) >= 2
                            ORDER BY n DESC""").fetchall()
     out, seen = [], set()
     for r in rows:
@@ -95,6 +101,19 @@ def _due_terms(conn, terms):
         "SELECT gtin FROM lookup_log WHERE source='kroger-seed' AND requested_at > datetime('now', ?)", (f"-{REDO_DAYS} days",))}
     allt = terms + brand_terms(conn, terms)
     return [(c, t) for c, t in allt if f"SEED:kroger:{t.lower()}" not in done]
+
+
+REFRESH_AFTER_DAYS = 7
+
+
+def _refresh_terms(conn, terms, n):
+    """When every term has run in the last 30 days, re-run the ones run longest ago (at least a week ago) instead of
+    sitting idle: shelf prices stay fresh and products Kroger added since are picked up. (Before 11/20 the seed stopped.)"""
+    last = {r[0]: r[1] for r in conn.execute(
+        "SELECT gtin, MAX(requested_at) FROM lookup_log WHERE source='kroger-seed' GROUP BY gtin")}
+    week = conn.execute("SELECT datetime('now', ?)", (f"-{REFRESH_AFTER_DAYS} days",)).fetchone()[0]
+    allt = [ct for ct in terms + brand_terms(conn, terms) if (last.get(f"SEED:kroger:{ct[1].lower()}") or "") < week]
+    return sorted(allt, key=lambda ct: last.get(f"SEED:kroger:{ct[1].lower()}") or "")[:n]
 
 
 def _kroger_search(es, http_get, term, start, loc, token):
@@ -167,11 +186,16 @@ def run(conn, budget, gik):
     for step in (lambda: print(f"Model numbers: {gik.fill_models(conn)} items got one from saved UPC lookups"),
                  lambda: seed_books(conn, gik), lambda: seed_kroger(conn, budget, gik),
                  lambda: fill_prices(conn, gik, FILL_PER_RUN), lambda: evidence_fill(conn, gik, EVIDENCE_PER_RUN),
-                 lambda: three_places(conn, gik, SERPER_PER_RUN)):
+                 lambda: three_places(conn, gik, SERPER_PER_RUN), lambda: health(conn)):
         try:
             step()
         except Exception as e:
             print(f"Catalog step skipped: {e}")
+    if should_fail():
+        # Turn this run red once the sync has finished and saved everything: the exit code is set as the program ends.
+        import atexit
+        atexit.register(lambda: (print("Catalog seed: ALERT daily check failed on purpose so it is noticed", flush=True),
+                                 os._exit(3)))
 
 
 def seed_kroger(conn, budget, gik):
@@ -187,8 +211,11 @@ def seed_kroger(conn, budget, gik):
     terms = load_terms()
     due = _due_terms(conn, terms)[:budget]
     if not due:
-        print(f"Catalog seed: all {len(terms)} terms seeded in the last {REDO_DAYS} days")
-        return
+        due = _refresh_terms(conn, terms, max(1, budget // 2))
+        print(f"Catalog seed: all terms seeded in the last {REDO_DAYS} days; refreshing the {len(due)} oldest "
+              f"(add terms to catalog_terms.txt to widen the catalog)")
+        if not due:
+            return
     try:
         token = es._kroger_token()
         loc = es._kroger_location(gik.http_get)
@@ -224,11 +251,18 @@ def load_book_queries(path=None):
         return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
 
 
+KID_CATS = re.compile(r"juvenile|young adult|education|study aids|teaching", re.I)
+
+
 def scanned_book_queries(conn):
-    """Learn from scans: every author and publisher of a book TEP actually received becomes a Google Books query."""
+    """Learn from scans: every author and publisher of a children's, teen or classroom book TEP actually received becomes
+    a Google Books query. Books known to be for adults are not learned from (11/13: a scanned romance novel pulled in
+    its author's whole backlist). Results of learned queries are filtered to children's/teen/classroom in seed_books."""
     out, seen = [], set()
-    for r in conn.execute("""SELECT name, brand FROM item_master WHERE (gtin LIKE '0978%' OR gtin LIKE '0979%')
+    for r in conn.execute("""SELECT name, brand, raw_category FROM item_master WHERE (gtin LIKE '0978%' OR gtin LIKE '0979%')
                              AND gtin IN (SELECT gtin FROM receipts) ORDER BY updated_at DESC""").fetchall():
+        if r["raw_category"] and not KID_CATS.search(r["raw_category"]):
+            continue
         author = (r["name"] or "").split(" - by ")[1].split(",")[0].strip() if " - by " in (r["name"] or "") else ""
         for q in ((f'inauthor:"{author}"' if len(author) > 3 else None),
                   (f'inpublisher:"{r["brand"].strip()}"' if r["brand"] and len(r["brand"].strip()) > 3 else None)):
@@ -257,32 +291,78 @@ def books_budget(conn, now=None):
     return max(0, min(BOOKS_PER_RUN, left // max(1, hours_left) // BOOK_PAGES))
 
 
+# Paging: a query is read 200 results at a time (BOOK_PAGES x 40). The progress row is
+#   gtin 'SEED:gbooks:<query>'            first 200 results     (or '...#from=<n>' for results n onward)
+#   http_status 206 = more results remain: the next run continues where this one stopped (no 30-day wait)
+#   http_status 204 = the query is used up: it starts over from the top after 30 days
+# Before 11/20 every query stopped after 200 results and was marked 200, which is why the catalog stopped growing on
+# 11/13; a 200 row is from then, and is treated as "more may remain" so each query gets read further.
+BOOK_MAX_START = 1000          # Google Books returns little past ~1,000 results
+
+
+def _book_key(q, start):
+    return f"SEED:gbooks:{q.lower()}" + (f"#from={start}" if start else "")
+
+
+def due_book_queries(conn, queries):
+    """(query, start) pairs to run, new queries first, then continuations, then queries due to start over."""
+    rows = conn.execute("SELECT gtin, http_status, requested_at FROM lookup_log WHERE source='gbooks-seed'").fetchall()
+    last = {}
+    for r in rows:
+        g = r["gtin"]
+        base, _, frm = g.partition("#from=")
+        start = int(frm) if frm.isdigit() else 0
+        prev = last.get(base)
+        if prev is None or (start, r["requested_at"]) > (prev[0], prev[2]):
+            last[base] = (start, r["http_status"], r["requested_at"])
+    cutoff = conn.execute("SELECT datetime('now', ?)", (f"-{REDO_DAYS} days",)).fetchone()[0]
+    new, more, again = [], [], []
+    for q in queries:
+        st = last.get(f"SEED:gbooks:{q.lower()}")
+        if st is None:
+            new.append((q, 0))
+            continue
+        start, code, when = st
+        more_left = code in (200, 206)
+        nxt = start + BOOK_PAGES * 40
+        if more_left and nxt < BOOK_MAX_START:
+            more.append((q, nxt))
+        elif (when or "") < cutoff:
+            again.append((q, 0))
+    return new + more + again
+
+
 def seed_books(conn, gik, budget=None):
     budget = books_budget(conn) if budget is None else budget
     key = gik.google_books_key()
     if not key or budget <= 0:
         return
-    done = {r[0] for r in conn.execute(
-        "SELECT gtin FROM lookup_log WHERE source='gbooks-seed' AND requested_at > datetime('now', ?)", (f"-{REDO_DAYS} days",))}
-    due = [q for q in load_book_queries() + scanned_book_queries(conn) if f"SEED:gbooks:{q.lower()}" not in done][:budget]
+    learned = scanned_book_queries(conn)
+    learned_set = {q.lower() for q in learned}
+    due = due_book_queries(conn, load_book_queries() + learned)[:budget]
     now = datetime.now().isoformat(timespec="seconds")
     tot = 0
-    for q in due:
+    for q, start in due:
         seen = new = 0
         st = 0
+        full = False
         for page in range(BOOK_PAGES):
             url = ("https://www.googleapis.com/books/v1/volumes?" + urllib.parse.urlencode(
                 {"q": q, "printType": "books", "langRestrict": "en", "country": "US", "maxResults": 40,
-                 "startIndex": page * 40, "key": key}))
+                 "startIndex": start + page * 40, "key": key}))
             st, body = gik.http_get(url)
             if st in (403, 429):  # daily quota used up: stop seeding until it resets, and do not mark this query done
                 print(f"Book seed: Google Books quota reached ({st}); stopping until the daily reset")
                 conn.commit()
                 return
             if st != 200:
+                full = False
                 break
             items = (json.loads(body) or {}).get("items") or []
+            full = len(items) >= 40
             for v in items:
+                if q.lower() in learned_set and not KID_CATS.search(" ".join((v.get("volumeInfo") or {}).get("categories") or [])):
+                    continue  # learned author/publisher query: keep only children's, teen and classroom titles
                 ids = {i.get("type"): i.get("identifier") for i in (v.get("volumeInfo") or {}).get("industryIdentifiers") or []}
                 isbn = re.sub(r"\D", "", ids.get("ISBN_13") or "")
                 if len(isbn) != 13 or not isbn.startswith(("978", "979")):
@@ -305,11 +385,13 @@ def seed_books(conn, gik, budget=None):
             if len(items) < 40:
                 break
             time.sleep(0.3)
+        code = st if st != 200 else (206 if full and start + BOOK_PAGES * 40 < BOOK_MAX_START else 204)
         conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)",
-                     (f"SEED:gbooks:{q.lower()}", "gbooks-seed", st, json.dumps({"query": q, "books": seen, "new_items": new})))
+                     (_book_key(q, start), "gbooks-seed", code,
+                      json.dumps({"query": q, "start": start, "books": seen, "new_items": new})))
         conn.commit()
         tot += new
-        print(f"  books '{q}': {seen} books, {new} new catalog items")
+        print(f"  books '{q}' from {start}: {seen} books, {new} new catalog items")
     if due:
         print(f"Book seed: {len(due)} queries, {tot} new catalog books")
 
@@ -410,7 +492,7 @@ def three_places(conn, gik, budget, post=None):
         conn.execute("INSERT INTO lookup_log (gtin, source, http_status, raw_response) VALUES (?,?,?,?)",
                      (r["gtin"], "serper", st, (body or "")[:20000]))
         conn.commit()
-        if st in (401, 402, 403, 429):  # bad key, out of credits or throttled: stop for this run, try next run
+        if st in (401, 402, 403, 429) or (st == 400 and "credit" in (body or "").lower()):  # bad key, out of credits or throttled
             print(f"Three places: Serper answered {st}; stopping for this run")
             break
         if st != 200:
@@ -480,3 +562,40 @@ def evidence_fill(conn, gik, budget):
         done += 1 if did else 0
     if asked:
         print(f"More places: checked {done} items with fewer than 3 stores, {asked} free lookups, {added} new store prices")
+
+
+# ---------------------------------------------------------------- health check: never stall silently again
+# 11/13-11/20 the catalog stopped growing and Kroger/Serper failed for days while every run still showed green.
+# Each run now checks itself. Problems print as "Catalog seed: ALERT ..." lines (summary only, no item names), and the
+# first run after 13:00 UTC each day (about 8 AM Pittsburgh) fails on purpose when there is an alert, so GitHub sends
+# its failed-run notice once a day until it is fixed.
+STALL_DAYS = int(os.environ.get("GIK_STALL_DAYS", "3"))
+ALERT_HOUR_UTC = int(os.environ.get("GIK_ALERT_HOUR_UTC", "13"))
+WATCHED = ("upcitemdb", "upcdatabase", "googlebooks", "kroger", "walmart", "bestbuy", "openprices", "ebay", "serper",
+           "kroger-seed", "gbooks-seed")
+ALERTS = []
+
+
+def health(conn):
+    ALERTS.clear()
+    new = conn.execute("SELECT COUNT(*) FROM item_master WHERE created_at > datetime('now', ?)",
+                       (f"-{STALL_DAYS} days",)).fetchone()[0]
+    if new == 0:
+        ALERTS.append(f"no new catalog items in {STALL_DAYS} days; add search terms to catalog_terms.txt or catalog_books.txt")
+    for r in conn.execute("""SELECT source, COUNT(*) n, SUM(http_status IN (200, 204, 206)) ok, SUM(http_status = 404) nf
+                             FROM lookup_log WHERE requested_at > datetime('now','-1 day') AND gtin NOT LIKE 'SEED:%'
+                             GROUP BY source""").fetchall():
+        if r["source"] not in WATCHED or r["n"] < 20 or r["ok"]:
+            continue
+        why = "only 'not found' answers" if r["nf"] == r["n"] else "errors on every call"
+        ALERTS.append(f"{r['source']}: {r['n']} calls in 24 hours, {why}; check its key, credits or sign-in")
+    print(f"Catalog seed: health: {new} new catalog items in {STALL_DAYS} days, "
+          + (f"{len(ALERTS)} alert(s)" if ALERTS else "all sources answering"))
+    for a in ALERTS:
+        print(f"Catalog seed: ALERT {a}")
+
+
+def should_fail(now=None):
+    """True on the one run a day that should turn red if there is an alert."""
+    now = now or datetime.utcnow()
+    return bool(ALERTS) and now.hour == ALERT_HOUR_UTC

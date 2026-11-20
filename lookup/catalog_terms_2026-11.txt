@@ -1,0 +1,244 @@
+# More Kroger catalog search terms, added 11/20/2026 when the catalog stopped growing (every term in
+# catalog_terms.txt had run in the last 30 days). Same format: "Category | search term". Any catalog_terms_*.txt
+# file in this folder is read too, so new lists can be added as new files.
+School supplies | twistable crayons
+School supplies | fine tip markers
+School supplies | broad line markers
+School supplies | dot markers
+School supplies | oil pastels
+School supplies | chalk pastels
+School supplies | watercolor pencils
+School supplies | pencil grips
+School supplies | pencil top erasers
+School supplies | glue gun
+School supplies | glue dots
+School supplies | double sided tape
+School supplies | duct tape
+School supplies | packing tape
+School supplies | washi tape
+School supplies | kids scissors
+School supplies | hole punch
+School supplies | three ring binder
+School supplies | plastic folders
+School supplies | expanding file
+School supplies | wide ruled paper
+School supplies | college ruled notebook
+School supplies | primary journal
+School supplies | writing tablet
+School supplies | legal pads
+School supplies | memo pads
+School supplies | tracing paper
+School supplies | bulletin board paper
+School supplies | bulletin board borders
+School supplies | classroom decorations
+School supplies | name tags
+School supplies | reward stickers
+School supplies | magnetic letters
+School supplies | counting bears
+School supplies | pattern blocks
+School supplies | geometry set
+School supplies | scientific calculator
+School supplies | graphing calculator
+School supplies | globe
+School supplies | world map
+School supplies | magnifying glass
+School supplies | timer
+School supplies | clipboard
+School supplies | supply caddy
+School supplies | book bins
+School supplies | chalkboard
+School supplies | easel
+School supplies | laminating pouches
+School supplies | thank you cards
+School supplies | greeting cards
+School supplies | calendar
+School supplies | erasable pens
+School supplies | colored pens
+School supplies | art set
+School supplies | canvas panels
+School supplies | acrylic paint
+School supplies | craft paint
+School supplies | origami paper
+School supplies | scrapbook paper
+School supplies | beads
+School supplies | perler beads
+School supplies | ribbon
+Technology | tablet case
+Technology | phone case
+Technology | wireless mouse
+Technology | webcam
+Technology | hdmi cable
+Technology | usb c cable
+Technology | wall charger
+Technology | portable charger
+Technology | bluetooth speaker
+Technology | kids headphones
+Technology | microsd card
+Technology | printer ink
+Technology | surge protector
+Technology | batteries c
+Technology | batteries d
+Technology | batteries 9v
+Technology | coin batteries
+Technology | rechargeable batteries
+Furniture & equipment | bookshelf
+Furniture & equipment | kids table
+Furniture & equipment | kids chair
+Furniture & equipment | stacking chairs
+Furniture & equipment | floor cushion
+Furniture & equipment | storage cubes
+Furniture & equipment | cube organizer
+Furniture & equipment | shelving unit
+Furniture & equipment | rolling cart
+Furniture & equipment | file cabinet
+Furniture & equipment | desk
+Furniture & equipment | lap desk
+Furniture & equipment | air purifier
+Furniture & equipment | humidifier
+Furniture & equipment | electric kettle
+Furniture & equipment | slow cooker
+Furniture & equipment | blender
+Furniture & equipment | mini fridge
+Apparel & hygiene | kids underwear
+Apparel & hygiene | boys socks
+Apparel & hygiene | girls socks
+Apparel & hygiene | athletic socks
+Apparel & hygiene | kids t-shirt
+Apparel & hygiene | hoodie
+Apparel & hygiene | kids jacket
+Apparel & hygiene | winter coat
+Apparel & hygiene | rain jacket
+Apparel & hygiene | sweatpants
+Apparel & hygiene | joggers
+Apparel & hygiene | kids pants
+Apparel & hygiene | shorts
+Apparel & hygiene | sneakers
+Apparel & hygiene | flip flops
+Apparel & hygiene | boots
+Apparel & hygiene | ear muffs
+Apparel & hygiene | face wash
+Apparel & hygiene | kids shampoo
+Apparel & hygiene | detangler
+Apparel & hygiene | hair gel
+Apparel & hygiene | hair oil
+Apparel & hygiene | edge control
+Apparel & hygiene | satin bonnet
+Apparel & hygiene | headbands
+Apparel & hygiene | nail clippers
+Apparel & hygiene | travel size toiletries
+Apparel & hygiene | hygiene kit
+Apparel & hygiene | panty liners
+Apparel & hygiene | kids toothpaste
+Apparel & hygiene | body spray
+Apparel & hygiene | baby powder
+Health & personal care | vitamins
+Health & personal care | kids vitamins
+Health & personal care | pain reliever
+Health & personal care | childrens pain reliever
+Health & personal care | allergy medicine
+Health & personal care | cough drops
+Health & personal care | antibiotic ointment
+Health & personal care | hydrocortisone cream
+Health & personal care | ice pack
+Health & personal care | heating pad
+Health & personal care | eye drops
+Health & personal care | reading glasses
+Health & personal care | pill organizer
+Health & personal care | gauze
+Health & personal care | medical tape
+Health & personal care | elastic bandage
+Health & personal care | insect repellent
+Health & personal care | hand cream
+Household & lighting | night light
+Household & lighting | smart bulb
+Household & lighting | led strip lights
+Household & lighting | floor lamp
+Household & lighting | lamp shade
+Household & lighting | lantern
+Household & lighting | smoke detector
+Household & lighting | door mat
+Household & lighting | curtains
+Household & lighting | curtain rod
+Household & lighting | comforter
+Household & lighting | twin sheets
+Household & lighting | pillowcases
+Household & lighting | mattress protector
+Household & lighting | wash cloths
+Household & lighting | bath mat
+Household & lighting | shower caddy
+Household & lighting | toilet brush
+Household & lighting | plunger
+Household & lighting | wastebasket
+Household & lighting | recycling bin
+Household & lighting | lint roller
+Household & lighting | iron
+Household & lighting | ironing board
+Household & lighting | drying rack
+Household & lighting | laundry pods
+Household & lighting | fabric softener
+Household & lighting | dryer sheets
+Household & lighting | stain remover
+Household & lighting | floor cleaner
+Household & lighting | bathroom cleaner
+Household & lighting | toilet bowl cleaner
+Household & lighting | scrub brush
+Household & lighting | microfiber cloths
+Household & lighting | rubber gloves
+Household & lighting | swiffer
+Household & lighting | pots and pans
+Household & lighting | skillet
+Household & lighting | cutting board
+Household & lighting | can opener
+Household & lighting | silverware
+Household & lighting | bowls
+Household & lighting | mugs
+Household & lighting | drinking glasses
+Household & lighting | travel mug
+Household & lighting | lunch bag
+Household & lighting | bento box
+Household & lighting | snack containers
+Household & lighting | pitcher
+Household & lighting | dish rack
+Household & lighting | paper cups
+Household & lighting | plastic wrap
+Household & lighting | sandwich bags
+Household & lighting | freezer bags
+Household & lighting | parchment paper
+Household & lighting | party favors
+Household & lighting | tablecloth
+Household & lighting | command strips
+Household & lighting | hooks
+Household & lighting | tool set
+Household & lighting | screwdriver
+Household & lighting | tape measure
+Household & lighting | zip ties
+Household & lighting | storage tote
+Household & lighting | over the door organizer
+Household & lighting | shoe rack
+Household & lighting | coat rack
+Household & lighting | mirror
+Household & lighting | vase
+Household & lighting | artificial plants
+Household & lighting | throw pillow
+Household & lighting | weighted blanket
+Household & lighting | sleeping bag
+Household & lighting | camping chair
+Food & beverage | applesauce pouches
+Food & beverage | cereal bars
+Food & beverage | goldfish crackers
+Food & beverage | pretzels
+Food & beverage | popcorn
+Food & beverage | animal crackers
+Food & beverage | graham crackers
+Food & beverage | trail mix
+Food & beverage | raisins
+Food & beverage | fruit cups
+Food & beverage | pudding cups
+Food & beverage | instant oatmeal
+Food & beverage | cereal cups
+Food & beverage | peanut butter crackers
+Food & beverage | rice cakes
+Food & beverage | sports drink
+Food & beverage | macaroni and cheese cups
+Food & beverage | ramen noodles
+Food & beverage | canned soup

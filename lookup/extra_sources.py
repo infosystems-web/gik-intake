@@ -71,8 +71,12 @@ def _kroger_location(http_get):
     return loc
 
 
+def is_book(gtin14):
+    return (gtin14 or "")[-13:][:3] in ("978", "979")
+
+
 def fetch_kroger(gtin14, http_get):
-    if not kroger_keys()[0]:
+    if not kroger_keys()[0] or is_book(gtin14):  # Kroger sells no books: 3,544 wasted ISBN calls 11/17-11/20
         return None, "", [], {}
     token = _kroger_token()
     loc = _kroger_location(http_get)
@@ -176,7 +180,7 @@ def fetch_walmart(gtin14, http_get):
 
 def fetch_bestbuy(gtin14, http_get):
     key = os.environ.get("BESTBUY_API_KEY") or (_keyfile("bestbuy_key.txt", 1) or [None])[0]
-    if not key:
+    if not key or is_book(gtin14):
         return None, "", [], {}
     s = gtin14.lstrip("0")
     upc = s.zfill(12) if len(s) <= 12 else s

@@ -214,6 +214,8 @@
   $("#btnFinishVisit").onclick = () => { const id = visit.distribution_id; visit = null; localStorage.removeItem("gik.visit"); showPacking(id); };
 
   let pkRows = [], pkId = "";
+  // Value each: store value, or for a book without one the used-book value (sql/packing_values.sql adds unit_value).
+  const unitOf = (r) => (r.unit_value !== undefined ? r.unit_value : r.fmv_unit);
   async function showPacking(id) {
     pkId = id;
     const [s, items] = await Promise.all([
@@ -225,7 +227,7 @@
     $("#pkTitle").textContent = id;
     const d = s.data || {};
     $("#pkHead").innerHTML = `<p><b>${esc(d.partner || "")}</b> · ${esc(d.distributed_on || "")} · ${num(d.units)} items, ${num(d.titles)} titles · estimated value ${money(d.value_est)}${d.students_served ? ` · ${num(d.students_served)} students` : ""}${d.classrooms_served ? ` · ${num(d.classrooms_served)} classrooms` : ""}</p>`;
-    $("#pkTable tbody").innerHTML = pkRows.map((r) => `<tr><td>${esc(r.name || r.gtin)}<div class="small muted">${esc(r.gtin)}</div></td><td>${esc(r.grade_band || "")}</td><td>${esc(r.subject || "")}</td><td>${r.qty}</td><td>${r.fmv_unit != null ? money(r.fmv_unit) : ""}</td><td>${money(r.value_est)}</td></tr>`).join("");
+    $("#pkTable tbody").innerHTML = pkRows.map((r) => `<tr><td>${esc(r.name || r.gtin)}<div class="small muted">${esc(r.gtin)}</div></td><td>${esc(r.grade_band || "")}</td><td>${esc(r.subject || "")}</td><td>${r.qty}</td><td>${unitOf(r) != null ? money(unitOf(r)) : ""}${r.value_basis && r.fmv_unit == null ? `<div class="small muted">${esc(r.value_basis.replace(/ \(.*\)$/, ""))}</div>` : ""}</td><td>${money(r.value_est)}</td></tr>`).join("");
     loadRecentVisits();
   }
   $("#btnPrintPk").onclick = () => {
@@ -233,8 +235,8 @@
     w.document.write(`<title>${esc(pkId)} packing list</title><style>body{font:13px system-ui;margin:24px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ccc;padding:4px;text-align:left}h1{font-size:18px;color:#1b2a52}</style><h1>The Education Partnership — packing list ${esc(pkId)}</h1>${$("#pkHead").innerHTML}<table>${$("#pkTable").innerHTML}</table><p style="margin-top:40px">Received by: ______________________ &nbsp; Date: __________</p>`);
     w.document.close(); w.focus(); w.print();
   };
-  $("#btnPkCsv").onclick = () => download(`${pkId}_packing_list.csv`, [["distribution_id", "barcode", "item", "grade_band", "subject", "qty", "unit_value", "value", "value_status"]]
-    .concat(pkRows.map((r) => [r.distribution_id, r.gtin, r.name, r.grade_band, r.subject, r.qty, r.fmv_unit, r.value_est, r.fmv_status])));
+  $("#btnPkCsv").onclick = () => download(`${pkId}_packing_list.csv`, [["distribution_id", "barcode", "item", "grade_band", "subject", "qty", "unit_value", "value", "value_basis"]]
+    .concat(pkRows.map((r) => [r.distribution_id, r.gtin, r.name, r.grade_band, r.subject, r.qty, unitOf(r), r.value_est, r.value_basis || r.fmv_status])));
   $("#btnPkClose").onclick = () => { $("#distPacking").classList.add("hidden"); $("#distStart").classList.remove("hidden"); };
 
   async function loadRecentVisits() {

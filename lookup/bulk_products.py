@@ -210,7 +210,8 @@ def write_rows(pg, source, license_, rows):
                            on conflict (gtin) do update set
                              name = case when gik.products.source = excluded.source then excluded.name else gik.products.name end,
                              brand = coalesce(case when gik.products.source = excluded.source then excluded.brand end, gik.products.brand),
-                             quantity = coalesce(gik.products.quantity, excluded.quantity),
+                             quantity = case when gik.products.source = excluded.source then coalesce(excluded.quantity, gik.products.quantity)
+                                             else coalesce(gik.products.quantity, excluded.quantity) end,
                              category_hint = coalesce(gik.products.category_hint, excluded.category_hint),
                              raw_categories = coalesce(gik.products.raw_categories, excluded.raw_categories),
                              image_url = coalesce(gik.products.image_url, excluded.image_url),

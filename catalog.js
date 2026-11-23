@@ -45,7 +45,7 @@ async function loadCatalog(quiet) {
     ["Est. value scanned", money(s.scanned_value_est), `${money(s.scanned_value_verified)} verified by staff`],
     ["Ready for NetSuite", num(s.netsuite_ready), `${num(s.verified)} verified &middot; ${num(s.items - s.verified)} to review`],
     ["Added last 24 hours", num(s.added_24h), `${num(s.added_7d)} in the last 7 days`],
-    ["Known barcodes", num(s.known_barcodes), "named before scanning" + (s.last_import ? " \u00b7 imported " + new Date(s.last_import).toLocaleDateString() : "")],
+    ["Known barcodes", num(s.known_barcodes), "named before scanning" + (s.last_import ? " · imported " + new Date(s.last_import).toLocaleDateString() : "")],
   ].map(([k, v, sub]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`).join("");
   $("#catUpdated").textContent = `Updated ${new Date().toLocaleTimeString()} · last lookup ${s.last_lookup ? new Date(s.last_lookup).toLocaleString() : "—"}`;
   const maxI = Math.max(1, ...cats.data.map((c) => c.items));
@@ -108,3 +108,6 @@ $("#btnNsCsv").onclick = async () => {
     download(`gik_netsuite_items_${draft ? "DRAFT_" : ""}${today()}.csv`, rows); toast(`${num(data.length)} items in the NetSuite file`, "ok");
   } catch (e) { fail(e); }
 };
+
+// Programs, condition at scan, sorting bins, Distribute and Programs tabs (programs.js, needs sql/programs_values.sql).
+document.body.appendChild(Object.assign(document.createElement("script"), { src: "programs.js?v=1" }));

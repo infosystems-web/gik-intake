@@ -2,6 +2,8 @@
 -- sorting bin (grade band + subject) worked out ahead of time, so books can be browsed, counted and sorted before any
 -- are scanned, and a scan shows its bin at once. Run in the Supabase SQL editor after programs_values.sql. Re-run safe.
 -- Fill it with:  select gik.refresh_book_catalog(50000);   (repeat until it returns 0; the weekly job does this too)
+-- After changing the sorting rules, re-sort every book:  update gik.book_catalog set source_updated_at = null;
+-- then run the refresh again (Actions > GIK reference catalog > sources: books).
 
 -- ---------------------------------------------------------------- sorting rules for Open Library data
 -- Open Library gives subject headings ("Juvenile fiction", "Alphabet books", "Board books", "Young adult fiction"),
@@ -24,7 +26,8 @@ returns text language sql immutable set search_path = '' as $$
     when s ~ '(education|teaching|teachers|classroom management|curricul|study and teaching|lesson plan)' and s !~ '(juvenile|children)' then 'Teacher/Adult'
     when s ~ '(alphabet books|concept books|counting|picture books|stories in rhyme|bedtime|easy readers|beginning reader|readers \(primary\)|early reader|picture puzzle|toy and movable)' then 'K-2'
     when s ~ '(chapter books|readers \(elementary\)|intermediate)' then '3-5'
-    when s ~ '(juvenile|children|spanish language materials)' then case
+    when s ~ '(phonics|reading \(elementary\)|reading \(primary\)|sight words)' then 'K-2'
+    when s ~ '(juvenile|children|spanish language materials|fairy tales|folklore|friendship|coloring books|workbooks|graphic novels)' then case
            when p_pages is null then 'K-5 (check pages)'
            when p_pages <= 48 then 'K-2'
            when p_pages <= 250 then '3-5'
@@ -51,7 +54,7 @@ returns text language sql immutable set search_path = '' as $$
     when s ~ '(phonics|reading|language arts|vocabulary|grammar|spelling|handwriting|writing)' then 'Reading & language arts'
     when s ~ '(poetry|nursery rhymes|stories in rhyme)' then 'Poetry & rhymes'
     when s ~ '(picture books|board books|alphabet books|concept books|bedtime|toy and movable)' or p_grade in ('Pre-K', 'K-2') and s ~ '(fiction|stories|juvenile)' then 'Picture books'
-    when s ~ '(fiction|stories|fantasy|mystery|adventure|novel)' then 'Fiction'
+    when s ~ '(fiction|stories|fantasy|mystery|adventure|novel|fairy tales|folklore|legends)' then 'Fiction'
     when s ~ '(juvenile literature|juvenile nonfiction|nonfiction)' then 'Other nonfiction'
     when p_grade = 'Teacher/Adult' then 'Teacher resources'
     else 'Not sorted yet' end

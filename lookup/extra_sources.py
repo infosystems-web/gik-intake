@@ -201,9 +201,63 @@ def fetch_bestbuy(gtin14, http_get):
     return st, body, offers, info
 
 
+# ---------------------------------------------------------------- Penguin Random House (free key, books only)
+# Secret: PRH_API_KEY (developer.penguinrandomhouse.com; a new key is switched on by PRH by hand, which can take days).
+# Publisher list price for one of the largest children's publishers, plus age, grade and binding. The list price is
+# saved as an MSRP offer: it can price a book, but it does not count as one of the "3 places" (stores only).
+
+PRH_API = "https://api.penguinrandomhouse.com/resources/v2/title/domains/PRH.US/titles/{isbn}"
+
+
+def _prh_title(doc):
+    """The title record in a PRH answer, wherever it sits ({data: {titles: [...]}} or the record itself)."""
+    if isinstance(doc, dict):
+        if "isbn" in doc and ("title" in doc or "price" in doc):
+            return doc
+        for v in doc.values():
+            t = _prh_title(v)
+            if t:
+                return t
+    elif isinstance(doc, list):
+        for v in doc:
+            t = _prh_title(v)
+            if t:
+                return t
+    return None
+
+
+def fetch_prh(gtin14, http_get):
+    key = os.environ.get("PRH_API_KEY") or (_keyfile("prh_key.txt", 1) or [None])[0]
+    if not key or not is_book(gtin14):
+        return None, "", [], {}
+    isbn = gtin14[-13:]
+    st, body = http_get(PRH_API.format(isbn=isbn) + "?api_key=" + urllib.parse.quote(key))
+    body = (body or "").replace(key, "***")
+    if st != 200:
+        return st, body, [], {}
+    try:
+        t = _prh_title(json.loads(body)) or {}
+    except ValueError:
+        return st, body, [], {}
+    usd = [p for p in t.get("price") or [] if isinstance(p, dict) and (p.get("currencyCode") or "USD") == "USD" and p.get("amount")]
+    fmt = ((t.get("format") or {}).get("description") or "").strip()
+    age = ((t.get("age") or {}).get("description") or "").strip()
+    grade = ((t.get("grade") or {}).get("description") or "").strip()
+    title = " ".join(x for x in (t.get("title"), t.get("subtitle")) if x)
+    info = {"name": f"{title} - by {t['author']}" if title and t.get("author") else (title or None),
+            "brand": (t.get("imprint") or {}).get("description") if isinstance(t.get("imprint"), dict) else "Penguin Random House"}
+    offers = [{"merchant": "MSRP - Penguin Random House (publisher list price)", "price": float(usd[0]["amount"]),
+               "link": f"https://www.penguinrandomhouse.com/search/site?q={isbn}", "condition": "New",
+               "title": title, "updated_t": int(time.time())}] if usd else []
+    extra = "; ".join(x for x in (fmt, f"ages {age}" if age else "", f"grades {grade}" if grade and grade.upper() != "ALL" else "") if x)
+    info["note"] = "Publisher list price (Penguin Random House)" + (f"; {extra}" if extra else "") + "; confirm at a store"
+    return st, body, offers, info
+
+
 # Order = priority. Add new sources here (Walmart, Best Buy, Amazon Business) as they are approved.
 PRICE_SOURCES = {
     "kroger": fetch_kroger,
     "walmart": fetch_walmart,
     "bestbuy": fetch_bestbuy,
+    "prh": fetch_prh,
 }

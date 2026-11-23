@@ -2037,7 +2037,8 @@ def cloud_connect():
     pg.autocommit = False
     with pg.cursor() as cur:
         cur.execute("set search_path = gik, public")
-    return pg
+    pg.commit()  # set search_path opens a transaction; close it so an idle connection never holds one
+  return pg
 
 
 def cloud_columns(pg, table):
@@ -2146,7 +2147,8 @@ def cloud_pull(conn, pg):
                              [tuple(_sqlite_value(v) for v in r) for r in rows])
             counts[t] = len(rows)
     conn.commit()
-    return counts
+    pg.commit()  # end the read transaction: left open through the lookups, it held locks that blocked schema changes (11/23)
+  return counts
 
 
 def cmd_cloud(args):

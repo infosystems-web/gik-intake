@@ -158,7 +158,8 @@ def edition_rows(lines, works, authors, stats, gik):
         name = f"{title} - by {author}" if author else title
         pub = ((rec.get("publishers") or [None])[0] or None)
         pages = rec.get("number_of_pages")
-        qty = f"{pages} pages" if isinstance(pages, int) and 0 < pages < 5000 else None
+        fmt = (rec.get("physical_format") or "").strip()   # Paperback, Hardcover, Board book ... (sets the used-book value)
+        qty = ", ".join(x for x in (f"{pages} pages" if isinstance(pages, int) and 0 < pages < 5000 else "", fmt[:30]) if x) or None
         subjects = work[0] if work else " / ".join(own[:MAX_SUBJECTS])
         covers = [c for c in rec.get("covers") or [] if isinstance(c, int) and c > 0]
         image = f"https://covers.openlibrary.org/b/id/{covers[0]}-M.jpg" if covers else None

@@ -38,7 +38,8 @@ EDITIONS = [
                                      "isbn_13": ["9783806741100"], "languages": [{"key": "/languages/ger"}]}),
     _line("edition", "/books/OL4M", {"title": "Romance", "works": [{"key": "/works/OL2W"}], "isbn_13": ["9780373298471"]}),
     _line("edition", "/books/OL5M", {"title": "Math Workbook Grade 2", "subjects": ["Mathematics, Workbooks"],
-                                     "isbn_13": ["9781483813424"], "by_statement": "Carson Dellosa."}),
+                                     "isbn_13": ["9781483813424"], "by_statement": "Carson Dellosa.",
+                                     "number_of_pages": 64, "physical_format": "Paperback"}),
     _line("edition", "/books/OL6M", {"title": "No ISBN", "works": [{"key": "/works/OL1W"}]}),
     "broken line\n",
 ]
@@ -58,6 +59,7 @@ def test_rows_keep_children_classroom_books_only():
     assert g[4] == "Books & media" and g[5] == "Books > Juvenile fiction" and g[6].endswith("/b/id/12345-M.jpg")
     assert g[7] == "https://openlibrary.org/books/OL1M"
     assert by["09781483813424"][1] == "Math Workbook Grade 2 - by Carson Dellosa"   # own subjects, by-statement
+    assert by["09781483813424"][3] == "64 pages, Paperback"                         # binding sets the used-book value
     assert ol_dump.rows.stats["works_kept"] == 1 and ol_dump.rows.stats["kept"] == 3
 
 
@@ -85,3 +87,23 @@ def test_dry_run_counts_without_a_database(monkeypatch, capsys):
     monkeypatch.setattr(ol_dump, "open_dump", _opener)
     monkeypatch.setattr(ol_dump.rows, "__defaults__", (_opener,))
     assert bp.run_source(None, "openlibrary-dump", dry_run=True) == 3
+
+
+# ---------------------------------------------------------------- Penguin Random House (books only, off without a key)
+
+def test_prh_list_price_age_and_grade(monkeypatch):
+    import extra_sources as es
+    monkeypatch.delenv("PRH_API_KEY", raising=False)
+    assert es.fetch_prh("09780399226908", lambda *a: (200, "{}"))[0] is None          # no key: skipped, nothing logged
+    monkeypatch.setenv("PRH_API_KEY", "secret")
+    assert es.fetch_prh("00071662005107", lambda *a: (200, "{}"))[0] is None          # not a book
+    answer = {"status": "ok", "data": {"titles": [{"isbn": 9780399226908, "title": "The Very Hungry Caterpillar",
+              "author": "Eric Carle", "price": [{"amount": 11.99, "currencyCode": "USD"}, {"amount": 15.99, "currencyCode": "CAD"}],
+              "format": {"code": "BB", "description": "Board Book"}, "age": {"description": "0-3"}, "grade": {"description": "ALL"},
+              "imprint": {"code": "PH", "description": "Philomel Books"}}]}}
+    urls = []
+    st, body, offers, info = es.fetch_prh("09780399226908", lambda url, *a: urls.append(url) or (200, json.dumps(answer)))
+    assert st == 200 and "secret" not in body and urls[0].endswith("/titles/9780399226908?api_key=secret")
+    assert offers[0]["price"] == 11.99 and offers[0]["merchant"].startswith("MSRP")   # MSRP: prices, not a "place"
+    assert info["name"] == "The Very Hungry Caterpillar - by Eric Carle" and info["brand"] == "Philomel Books"
+    assert "Board Book" in info["note"] and "ages 0-3" in info["note"] and "grades" not in info["note"]

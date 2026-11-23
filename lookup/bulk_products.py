@@ -5,6 +5,7 @@ Sources (all free):
   openproductsfacts Open Products Facts CSV export: household, school, toys, electronics ...          (ODbL 1.0)
   openfoodfacts     Open Food Facts CSV export, US only, classroom-snack categories only              (ODbL 1.0)
   openlibrary       Open Library search API by subject: children's, young adult, education books (CC0)
+  openlibrary-dump  Open Library full monthly dump: every children's/teen/classroom book with an ISBN (CC0, ol_dump.py)
 
 Writes gik.products (names only; values still come from retail evidence) and one gik.import_runs row per source,
 then gives scanned barcodes that still have no name the reference name (gik.apply_reference_names()).
@@ -29,6 +30,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gik  # noqa: E402  (normalize_gtin, map_category, cloud_connect)
+import ol_dump  # noqa: E402
 
 UA = "TEP-GIK-Intake/0.4 (The Education Partnership nonprofit, Pittsburgh; GIK catalog)"
 ODBL = "ODbL 1.0 (Open Food Facts contributors)"
@@ -236,6 +238,10 @@ def run_source(pg, source, dry_run=False, limit=None):
     try:
         if source == "openlibrary":
             gen, lic, statobj = ol_rows(load_ol_subjects()), "CC0 (Open Library)", ol_rows
+        elif source == "openlibrary-dump":
+            gen, lic, statobj = ol_dump.rows(gik), ol_dump.LICENSE, ol_dump.rows
+            if not dry_run:
+                gen = ol_dump.guarded(gen, pg)
         else:
             gen, lic, statobj = parse_csv(source, open_stream(CSV_SOURCES[source])), ODBL, parse_csv
         if limit:
@@ -300,10 +306,13 @@ def main(argv):
         rebuild_prefixes(pg)
         apply_names(pg)
         return 0
-    sources = list(CSV_SOURCES) + ["openlibrary"] if names == ["all"] else names
+    sources = list(CSV_SOURCES) + ["openlibrary", "openlibrary-dump"] if names == ["all"] else names
+    if names == ["all"] and pg is not None and ol_dump.ran_recently(pg):
+        sources.remove("openlibrary-dump")  # monthly dump, already loaded this month
+        print("openlibrary-dump: loaded in the last 28 days; skipped")
     failed = []
     for s in sources:
-        if s not in CSV_SOURCES and s != "openlibrary":
+        if s not in CSV_SOURCES and s not in ("openlibrary", "openlibrary-dump"):
             print(f"unknown source {s}")
             failed.append(s)
             continue

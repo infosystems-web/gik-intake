@@ -53,11 +53,26 @@ def _record(line):
     return rec if isinstance(rec, dict) else None
 
 
+def _txt(v):
+    """Text from a field that Open Library stores as a string or as {"type": "/type/text", "value": ...}."""
+    if isinstance(v, dict):
+        v = v.get("value")
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _key(v):
+    """A key from "/authors/OL1A", {"key": ...} or {"author": {"key": ...}} / {"author": "/authors/OL1A"}."""
+    if isinstance(v, str):
+        return v.strip() or None
+    if isinstance(v, dict):
+        return _key(v.get("key")) if "key" in v else _key(v.get("author"))
+    return None
+
+
 def _subjects(rec):
     out = []
     for s in rec.get("subjects") or []:
-        s = s if isinstance(s, str) else (s or {}).get("name", "") if isinstance(s, dict) else ""
-        s = s.strip()
+        s = _txt(s.get("name") if isinstance(s, dict) else s)
         if s:
             out.append(s)
     return out
@@ -81,11 +96,11 @@ def isbn13_from_10(isbn10):
 def edition_isbns(rec):
     out = []
     for i in rec.get("isbn_13") or []:
-        d = re.sub(r"\D", "", i or "")
+        d = re.sub(r"\D", "", i if isinstance(i, str) else "")
         if len(d) == 13 and d.startswith(("978", "979")):
             out.append(d)
     for i in rec.get("isbn_10") or []:
-        d = isbn13_from_10(i)
+        d = isbn13_from_10(i if isinstance(i, str) else "")
         if d:
             out.append(d)
     seen, uniq = set(), []
@@ -106,11 +121,14 @@ def scan_works(lines, stats):
         rec = _record(line)
         if not rec:
             continue
-        subs = kid_subjects(_subjects(rec))
-        if not subs:
-            continue
-        authors = [((a or {}).get("author") or {}).get("key") for a in rec.get("authors") or [] if isinstance(a, dict)]
-        works[rec.get("key")] = (" / ".join(subs[:MAX_SUBJECTS]), [a for a in authors if a][:2])
+        try:
+            subs = kid_subjects(_subjects(rec))
+            if not subs:
+                continue
+            authors = [_key(a) for a in rec.get("authors") or []]
+            works[_key(rec.get("key"))] = (" / ".join(subs[:MAX_SUBJECTS]), [a for a in authors if a][:2])
+        except Exception:  # one odd record must never stop the load
+            stats["bad_records"] = stats.get("bad_records", 0) + 1
     stats["works_kept"] = len(works)
     return works
 
@@ -123,8 +141,8 @@ def scan_authors(lines, wanted, stats):
         if key not in wanted:
             continue
         rec = _record(line)
-        if rec and (rec.get("name") or "").strip():
-            names[key] = rec["name"].strip()
+        if rec and _txt(rec.get("name")):
+            names[key] = _txt(rec.get("name"))
     stats["authors_named"] = len(names)
     return names
 
@@ -138,32 +156,14 @@ def edition_rows(lines, works, authors, stats, gik):
         rec = _record(line)
         if not rec:
             continue
-        langs = {(l or {}).get("key") for l in rec.get("languages") or [] if isinstance(l, dict)}
-        if langs and not langs & LANGS:
+        try:
+            row = _edition(rec, works, authors)
+        except Exception:  # one odd record must never stop the load
+            stats["bad_records"] = stats.get("bad_records", 0) + 1
             continue
-        work_keys = [((w or {}).get("key")) for w in rec.get("works") or [] if isinstance(w, dict)]
-        work = next((works[k] for k in work_keys if k in works), None)
-        own = kid_subjects(_subjects(rec))
-        if not work and not own:
+        if not row:
             continue
-        isbns = edition_isbns(rec)
-        title = (rec.get("title") or "").strip()
-        if not isbns or not title:
-            continue
-        subtitle = (rec.get("subtitle") or "").strip()
-        if subtitle and len(title) + len(subtitle) < 120:
-            title = f"{title}: {subtitle}"
-        akeys = [((a or {}).get("key")) for a in rec.get("authors") or [] if isinstance(a, dict)] or (work[1] if work else [])
-        author = ", ".join(authors[k] for k in akeys if k in authors) or (rec.get("by_statement") or "").strip().rstrip(".")
-        name = f"{title} - by {author}" if author else title
-        pub = ((rec.get("publishers") or [None])[0] or None)
-        pages = rec.get("number_of_pages")
-        fmt = (rec.get("physical_format") or "").strip()   # Paperback, Hardcover, Board book ... (sets the used-book value)
-        qty = ", ".join(x for x in (f"{pages} pages" if isinstance(pages, int) and 0 < pages < 5000 else "", fmt[:30]) if x) or None
-        subjects = work[0] if work else " / ".join(own[:MAX_SUBJECTS])
-        covers = [c for c in rec.get("covers") or [] if isinstance(c, int) and c > 0]
-        image = f"https://covers.openlibrary.org/b/id/{covers[0]}-M.jpg" if covers else None
-        url = f"https://openlibrary.org{rec.get('key', '')}"
+        name, pub, qty, subjects, image, url, isbns = row
         for isbn in isbns:
             g = gik.normalize_gtin("0" + isbn)
             if not g:
@@ -171,6 +171,38 @@ def edition_rows(lines, works, authors, stats, gik):
             stats["kept"] += 1
             yield (g, name[:300], pub and pub[:120], qty, "Books & media", f"Books > {subjects}"[:300], image, url)
     stats["read"] = stats["editions_read"]
+
+
+def _edition(rec, works, authors):
+    """One edition record -> (name, publisher, quantity, subjects, image, url, isbns), or None to skip it."""
+    langs = {_key(l) for l in rec.get("languages") or []}
+    langs.discard(None)
+    if langs and not langs & LANGS:
+        return None
+    work_keys = [_key(w) for w in rec.get("works") or []]
+    work = next((works[k] for k in work_keys if k in works), None)
+    own = kid_subjects(_subjects(rec))
+    if not work and not own:
+        return None
+    isbns = edition_isbns(rec)
+    title = _txt(rec.get("title"))
+    if not isbns or not title:
+        return None
+    subtitle = _txt(rec.get("subtitle"))
+    if subtitle and len(title) + len(subtitle) < 120:
+        title = f"{title}: {subtitle}"
+    akeys = [k for k in (_key(a) for a in rec.get("authors") or []) if k] or (work[1] if work else [])
+    author = ", ".join(authors[k] for k in akeys if k in authors) or _txt(rec.get("by_statement")).rstrip(".")
+    name = f"{title} - by {author}" if author else title
+    pub = _txt((rec.get("publishers") or [None])[0]) or None
+    pages = rec.get("number_of_pages")
+    fmt = _txt(rec.get("physical_format"))   # Paperback, Hardcover, Board book ... (sets the used-book value)
+    qty = ", ".join(x for x in (f"{pages} pages" if isinstance(pages, int) and 0 < pages < 5000 else "", fmt[:30]) if x) or None
+    subjects = work[0] if work else " / ".join(own[:MAX_SUBJECTS])
+    covers = [c for c in rec.get("covers") or [] if isinstance(c, int) and c > 0]
+    image = f"https://covers.openlibrary.org/b/id/{covers[0]}-M.jpg" if covers else None
+    url = f"https://openlibrary.org{_key(rec.get('key')) or ''}"
+    return name, pub, qty, subjects, image, url, isbns
 
 
 def rows(gik, opener=open_dump):

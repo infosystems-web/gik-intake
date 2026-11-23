@@ -39,6 +39,7 @@ jobs:
           WALMART_CONSUMER_ID: ${{ secrets.WALMART_CONSUMER_ID }}
           WALMART_PRIVATE_KEY: ${{ secrets.WALMART_PRIVATE_KEY }}
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          PRH_API_KEY: ${{ secrets.PRH_API_KEY }}
           # per-run budgets sized for 24 runs a day, inside each free daily limit
           GIK_FILL: "150"
           GIK_EVIDENCE: "75"

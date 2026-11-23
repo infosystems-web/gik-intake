@@ -14,6 +14,7 @@ then gives scanned barcodes that still have no name the reference name (gik.appl
   python bulk_products.py openbeautyfacts openlibrary
   python bulk_products.py apply          after each lookup run: names, prefix brands, trim old raw lookup text
   python bulk_products.py prefixes       rebuild the barcode prefix -> brand map (also done after every import)
+  python bulk_products.py books          sort new/changed reference books into grade bands and subjects (also after every import)
   python bulk_products.py <source> --dry-run --limit 5000   parse and count, write nothing
 """
 import csv
@@ -290,6 +291,22 @@ def rebuild_prefixes(pg):
     return n
 
 
+def refresh_books(pg, batch=50000):
+    """Book dataset (sql/books.sql): sort every new or changed reference book into its grade band and subject bin."""
+    total = 0
+    while True:
+        with pg.cursor() as cur:
+            cur.execute("select gik.refresh_book_catalog(%s)", (batch,))
+            n = cur.fetchone()[0]
+        pg.commit()
+        total += n
+        if n == 0:
+            break
+        print(f"  books: {total:,} sorted so far")
+    print(f"Book dataset: {total:,} books sorted into grade bands and subjects")
+    return total
+
+
 def main(argv):
     dry = "--dry-run" in argv
     limit = None
@@ -302,6 +319,9 @@ def main(argv):
     pg = None if (dry and names != ["apply"]) else gik.cloud_connect()
     if names == ["apply"]:
         apply_names(pg)
+        return 0
+    if names == ["books"]:
+        refresh_books(pg)
         return 0
     if names == ["prefixes"]:
         rebuild_prefixes(pg)
@@ -329,6 +349,11 @@ def main(argv):
             print(f"!! prefix map failed: {e}")
             failed.append("prefixes")
         apply_names(pg)
+        try:
+            refresh_books(pg)
+        except Exception as e:  # before sql/books.sql is applied the function does not exist; imports still count
+            pg.rollback()
+            print(f"!! book dataset not refreshed: {e}")
     if failed:
         print(f"Failed sources: {', '.join(failed)}")
         return 1
